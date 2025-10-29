@@ -16,6 +16,9 @@ psycopg2-binary = "*"
 redis = "*"
 celery = "*"
 cryptography = "*"
+dkimpy = "*"
+dnspython = "*"
+dmarc = "*"
 
 [dev-packages]
 

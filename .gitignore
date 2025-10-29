@@ -78,3 +78,6 @@ build/
 # Misc
 *.swp
 *~
+
+AzureClientSecret.txt
+client_secret_50008507505-sic2cngjnvt4o1pjn1otcn67njg2ghb4.apps.googleusercontent.com.json
