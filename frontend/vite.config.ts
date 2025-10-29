@@ -1,7 +1,14 @@
 import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
+import react from '@vitejs/plugin-react-swc'
+import { fileURLToPath, URL } from 'url'
 
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  resolve: {
+    alias: {
+      // This maps `@` to the `src` directory. Use fileURLToPath for ESM compatibility.
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
+    },
+  },
 })
