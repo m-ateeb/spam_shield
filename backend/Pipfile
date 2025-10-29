@@ -5,6 +5,17 @@ name = "pypi"
 
 [packages]
 django = "*"
+supabase = "*"
+python-jose = "*"
+pyjwt = "*"
+requests = "*"
+python-dotenv = "*"
+djangorestframework = "*"
+dj-database-url = "*"
+psycopg2-binary = "*"
+redis = "*"
+celery = "*"
+cryptography = "*"
 
 [dev-packages]
 
