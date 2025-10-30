@@ -3,6 +3,7 @@ import os
 import re
 import requests
 import time
+from celery import shared_task
 from dotenv import load_dotenv
 from email_connector.supabase_client import syslog
 
@@ -99,30 +100,28 @@ def check_urlhaus(url):
 # ===================================================
 # ================= URLSCAN CHECK ===================
 # ===================================================
-def check_urlscan(url):
-    """Optional deep scan using URLScan.io sandbox and fetch final verdict."""
+def check_urlscan(url, email_id=None):
+    """Submit URL to URLScan.io and trigger async polling."""
     if not URLSCAN_API_KEY:
         return "skipped"
 
     try:
         headers = {
             "Content-Type": "application/json",
-            "api-key": URLSCAN_API_KEY   # ✅ Correct header name (lowercase)
+            "api-key": URLSCAN_API_KEY
         }
 
         body = {
             "url": url,
-            "visibility": "unlisted",    # Default safe mode (not public)
-            "country": "de",             # You can randomize or keep fixed
+            "visibility": "unlisted",
+            "country": "de",
             "tags": ["automated", "email-scan"]
         }
 
-        # === Submit scan ===
         resp = requests.post(URLSCAN_ENDPOINT, json=body, headers=headers, timeout=20)
         if resp.status_code != 200:
             if resp.status_code == 429:
-                time.sleep(5)
-                return "retry"
+                return "rate_limited"
             return "error"
 
         data = resp.json()
@@ -130,40 +129,23 @@ def check_urlscan(url):
         if not scan_id:
             return "error"
 
-        # === Wait for scan result (polling) ===
-        result_url = f"https://urlscan.io/api/v1/result/{scan_id}/"
-        time.sleep(10)  # wait before polling
-        result_resp = requests.get(result_url, headers=headers, timeout=20)
-
-        if result_resp.status_code == 200:
-            result_data = result_resp.json()
-
-            # Optional: check for verdicts
-            verdicts = result_data.get("verdicts", {})
-            overall = verdicts.get("overall", {})
-            score = overall.get("score", 0)
-            malicious = overall.get("malicious", False)
-
-            if malicious or score > 50:
-                return "malicious"
-            elif score > 20:
-                return "suspicious"
-            else:
-                return "safe"
-        else:
-            return "pending"
+        # 🆕 Trigger async polling task
+        if email_id:
+            poll_urlscan_result.apply_async(args=[scan_id, email_id, url], countdown=15)
+        
+        return "pending"
 
     except Exception as e:
         syslog("urlscan_error", "check_urlscan", {"url": url, "error": str(e)})
         return "error"
 
 
+
 # ===================================================
 # ================= MAIN ANALYZER ===================
 # ===================================================
-def analyze_url(url):
-
-    # === STEP 1: Google Safe Browsing ===
+def analyze_url(url, email_id=None):
+    """Main URL analyzer with email_id for async polling."""
     gsb_result = check_google_safe_browsing(url)
     if gsb_result == "malicious":
         return {
@@ -173,7 +155,6 @@ def analyze_url(url):
             "final_verdict": "malicious"
         }
 
-    # === STEP 2: URLHaus ===
     urlhaus_result = check_urlhaus(url)
     if urlhaus_result == "malicious":
         return {
@@ -183,20 +164,67 @@ def analyze_url(url):
             "final_verdict": "malicious"
         }
 
-    # === STEP 3: URLScan (optional sandboxing) ===
     if gsb_result == "unknown" or urlhaus_result == "unknown":
-        scan_status = check_urlscan(url)
+        scan_status = check_urlscan(url, email_id)  # 🆕 Pass email_id
         return {
             "google_safebrowsing": gsb_result,
             "urlhaus_status": urlhaus_result,
             "urlscan_status": scan_status,
-            "final_verdict": "suspicious" if scan_status == "submitted" else "safe"
+            "final_verdict": "pending" if scan_status == "pending" else "safe"
         }
 
-    # === FINAL VERDICT ===
     return {
         "google_safebrowsing": gsb_result,
         "urlhaus_status": urlhaus_result,
         "urlscan_status": "skipped",
         "final_verdict": "safe"
     }
+
+@shared_task(bind=True, max_retries=3)
+def poll_urlscan_result(self, scan_id: str, email_id: int, url: str):
+    """
+    Poll URLScan.io for scan results (async task).
+    Called after initial submission returns pending.
+    """
+    try:
+        result_url = f"https://urlscan.io/api/v1/result/{scan_id}/"
+        headers = {"api-key": URLSCAN_API_KEY} if URLSCAN_API_KEY else {}
+        
+        result_resp = requests.get(result_url, headers=headers, timeout=20)
+        
+        if result_resp.status_code == 404:
+            # Not ready yet, retry after 15 seconds
+            raise self.retry(countdown=15)
+        
+        if result_resp.status_code == 200:
+            result_data = result_resp.json()
+            
+            # Extract verdict
+            verdicts = result_data.get("verdicts", {})
+            overall = verdicts.get("overall", {})
+            score = overall.get("score", 0)
+            malicious = overall.get("malicious", False)
+            
+            if malicious or score > 50:
+                final_verdict = "malicious"
+            elif score > 20:
+                final_verdict = "suspicious"
+            else:
+                final_verdict = "safe"
+            
+            # Update database
+            from email_connector.supabase_client import supabase
+            supabase.table("url_analysis").update({
+                "urlscan_status": final_verdict,
+                "final_verdict": final_verdict
+            }).eq("email_id", email_id).eq("url", url).execute()
+            
+            syslog("urlscan_complete", "poll_urlscan_result", {
+                "email_id": email_id, "url": url, "verdict": final_verdict
+            })
+            
+    except Exception as e:
+        syslog("urlscan_poll_error", "poll_urlscan_result", {
+            "email_id": email_id, "url": url, "error": str(e)
+        })
+        raise self.retry(exc=e)

@@ -1,37 +1,6 @@
-# email_connector/utils.py
-from django.conf import settings
-from jose import jwt
-import requests
-import re
 from bs4 import BeautifulSoup
+import re
 
-# ==========================
-# JWT UTILITIES
-# ==========================
-
-def extract_jwt(request):
-    """Extract the Supabase JWT token from Authorization header"""
-    auth = request.headers.get("Authorization", "")
-    if auth.startswith("Bearer "):
-        return auth.split(" ")[1]
-    return None
-
-
-def get_user_id_from_jwt(token: str):
-    """Decode Supabase JWT and extract user_id (sub)"""
-    try:
-        jwks_url = f"{settings.SUPABASE_URL}/auth/v1/jwks"
-        jwks = requests.get(jwks_url).json()
-        payload = jwt.decode(token, jwks, algorithms=["RS256"], audience="authenticated")
-        return payload.get("sub")
-    except Exception as e:
-        print("JWT decode failed:", e)
-        return None
-
-
-# ==========================
-# EMAIL PARSING UTILITIES
-# ==========================
 
 def extract_sender(raw_msg):
     """
@@ -56,7 +25,6 @@ def extract_sender(raw_msg):
 def extract_body_html(raw_msg):
     """
     Extract HTML body from Gmail or Outlook message payload.
-    Gmail messages often have base64-encoded parts.
     """
     try:
         # Gmail (MIME parts)
@@ -64,7 +32,7 @@ def extract_body_html(raw_msg):
         if "body" in payload and payload["body"].get("data"):
             import base64
             data = payload["body"]["data"]
-            data += "=" * (-len(data) % 4)  # fix padding
+            data += "=" * (-len(data) % 4)
             return base64.urlsafe_b64decode(data).decode("utf-8", errors="ignore")
 
         # Gmail (multipart)
@@ -85,15 +53,10 @@ def extract_body_html(raw_msg):
 
 
 def highlight_urls(html_content):
-    """
-    Add <mark> highlight tags around URLs found in the email HTML content.
-    Helps visually emphasize suspicious links.
-    """
+    """Add <mark> highlight tags around URLs found in the email HTML content."""
     try:
         if not html_content:
             return html_content
-
-        # Regex to find URLs
         url_pattern = r'(https?://[^\s"<]+)'
         highlighted = re.sub(url_pattern, r'<mark style="background-color: yellow">\1</mark>', html_content)
         return highlighted

@@ -16,7 +16,13 @@ SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'django-insecure-pa9+q-xp5emsj7ytnd#
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv('DEBUG', 'True') == 'True'
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1', '.yourdomain.com', 'unrung-undegenerating-les.ngrok-free.dev']  # Update in production
+ALLOWED_HOSTS = ['localhost', '127.0.0.1', '.yourdomain.com', 'unrung-undegenerating-les.ngrok-free.dev', 'localhost:5173']
+
+FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:5173')
+
+GOOGLE_REDIRECT_URI = f"{FRONTEND_URL}/oauth/google/callback"
+
+MICROSOFT_REDIRECT_URI = f"{FRONTEND_URL}/oauth/microsoft/callback"
 
 # Application definition
 INSTALLED_APPS = [
@@ -143,3 +149,7 @@ CELERY_BROKER_TRANSPORT_OPTIONS = {
 CELERY_REDIS_BACKEND_USE_SSL = {
     'ssl_cert_reqs': 'CERT_NONE'
 }
+
+# Email Processing Configuration
+EMAIL_BATCH_SIZE = int(os.getenv('EMAIL_BATCH_SIZE', 10))  # Configurable batch size
+TOKEN_REFRESH_BUFFER_MINUTES = 5  # Refresh tokens 5 mins before expiry

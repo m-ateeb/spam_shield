@@ -1,5 +1,5 @@
-# spam_shield/decision_engine.py
 from email_connector.supabase_client import supabase, syslog
+from email_connector.oauth_utils import execute_email_action
 from datetime import datetime
 
 
@@ -72,6 +72,8 @@ def run_rule_based_classification(email_id: int):
 
         if action in ["quarantine", "delete"] and email_data:
             quarantine_email(email_data, action, reason)
+            # 🆕 NEW: Actually execute the action on the email
+            execute_email_action(email_id, action)
 
         syslog(
             "classification_result",
@@ -106,7 +108,6 @@ def quarantine_email(email, action, reason):
             }
         ).execute()
 
-        # Mark in main emails table for frontend
         supabase.table("emails").update({"is_suspicious": True}).eq("id", email["id"]).execute()
 
         syslog("quarantine_add", "quarantine_email", {"email_id": email["id"], "reason": reason})
