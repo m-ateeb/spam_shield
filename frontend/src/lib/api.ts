@@ -1,19 +1,16 @@
-import axios from 'axios'
-import { supabase } from './supabaseClient'
+import axios from "axios";
+import { supabase } from "./supabaseClient";
 
-export const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000',
-  withCredentials: false,
-})
+const api = axios.create({
+  baseURL: import.meta.env.VITE_BACKEND_URL || "https://your-backend-domain.com",
+  headers: { "Content-Type": "application/json" },
+});
 
 api.interceptors.request.use(async (config) => {
-  const { data } = await supabase.auth.getSession()
-  const token = data.session?.access_token
-  if (token) {
-    config.headers = config.headers ?? {}
-    config.headers.Authorization = `Bearer ${token}`
-  }
-  return config
-})
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
 
-
+export default api;

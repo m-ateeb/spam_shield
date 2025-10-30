@@ -24,8 +24,11 @@ GOOGLE_REDIRECT_URI = f"{FRONTEND_URL}/oauth/google/callback"
 
 MICROSOFT_REDIRECT_URI = f"{FRONTEND_URL}/oauth/microsoft/callback"
 
+
+
 # Application definition
 INSTALLED_APPS = [
+    'corsheaders',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -38,6 +41,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -45,6 +49,16 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+
+# DEV ONLY: allow all origins
+CORS_ALLOW_ALL_ORIGINS = True
+
+# CORS_ALLOW_ALL_ORIGINS = False
+# CORS_ALLOWED_ORIGINS = [
+#     "http://localhost:5173",
+#     "https://yourfrontend.com",
+# ]
+
 
 ROOT_URLCONF = 'spam_shield.urls'
 

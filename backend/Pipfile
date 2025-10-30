@@ -20,6 +20,7 @@ dkimpy = "*"
 dnspython = "*"
 dmarc = "*"
 beautifulsoup4 = "*"
+django-cors-headers = "*"
 
 [dev-packages]
 

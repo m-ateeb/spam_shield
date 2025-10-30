@@ -5,7 +5,7 @@ interface Props {
   children: JSX.Element;
 }
 
-export const PublicRoute: React.FC<Props> = ({ children }) => {
+export const ProtectedRoute: React.FC<Props> = ({ children }) => {
   const { user, loading } = useAuth();
 
   if (loading) {
@@ -16,8 +16,8 @@ export const PublicRoute: React.FC<Props> = ({ children }) => {
     );
   }
 
-  if (user) {
-    return <Navigate to="/dashboard" replace />;
+  if (!user) {
+    return <Navigate to="/login" replace />;
   }
 
   return children;
