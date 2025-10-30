@@ -1,16 +1,37 @@
-from celery import shared_task
-import requests, time, re
-from email_connector.supabase_client import supabase, decrypt_token, syslog, get_account_by_email, upsert_connected_account
+# spam_shield/tasks.py (FINAL UPDATED with Module 4 - Decision Engine)
+import base64
+import requests
+from email_connector.oauth_utils import get_valid_access_token
+from email_connector.email_validator import validate_email_authenticity
+from email_connector.supabase_client import (
+    supabase,
+    decrypt_token,
+    syslog,
+    get_account_by_email,
+    upsert_connected_account,
+)
+from email_connector.utils import extract_sender, extract_body_html, highlight_urls
+from email_connector.url_reputation import extract_urls_from_html, analyze_url
 from django.conf import settings
+from celery import shared_task
 
+
+# ===========================
+# MODULE 1 → Entry Task
+# ===========================
 @shared_task(bind=True, max_retries=5, default_retry_delay=60)
 def process_incoming_email(self, email: str, provider: str, history_id=None):
+    """Entry task — triggers Gmail/Outlook email processing."""
     try:
         account = get_account_by_email(email, provider)
         if not account:
+            syslog("account_not_found", "process_incoming_email", {"email": email})
             return
-        access_token = decrypt_token(account['access_token'])
+        
+        # 🆕 Use token refresh mechanism
+        access_token = get_valid_access_token(account)
         if not access_token:
+            syslog("token_refresh_failed", "process_incoming_email", {"email": email})
             return
 
         if provider == "gmail":
@@ -21,63 +42,161 @@ def process_incoming_email(self, email: str, provider: str, history_id=None):
         syslog("task_error", "process_incoming_email", {"error": str(e)})
         raise self.retry(exc=e)
 
+
+
+# ===========================
+# MODULE 1 → Gmail / Outlook Fetch
+# ===========================
 def process_gmail(email, token, account, history_id):
+    """Fetch recent Gmail messages and process each."""
     url = f"https://gmail.googleapis.com/gmail/v1/users/{email}/messages"
     headers = {"Authorization": f"Bearer {token}"}
-    resp = requests.get(url, headers=headers, params={"maxResults": 10}).json()
+    
+    # 🆕 Use configurable batch size
+    batch_size = getattr(settings, 'EMAIL_BATCH_SIZE', 10)
+    
+    resp = requests.get(url, headers=headers, params={"maxResults": batch_size}).json()
     for msg in resp.get("messages", []):
         msg_data = requests.get(f"{url}/{msg['id']}", headers=headers).json()
         save_email(msg_data, account)
 
+
 def process_outlook(email, token, account):
+    """Fetch Outlook messages and process each."""
     url = "https://graph.microsoft.com/v1.0/me/messages"
     headers = {"Authorization": f"Bearer {token}"}
     resp = requests.get(url, headers=headers).json()
     for msg in resp.get("value", []):
         save_email(msg, account)
 
+
+# ===========================
+# MODULE 2 & 3 → Email Validation + URL Reputation
+# ===========================
 def save_email(raw_msg, account):
-    message_id = raw_msg.get('id')
+    """Extract, validate, scan, and store email details in Supabase."""
+    message_id = raw_msg.get("id")
     if not message_id:
         return
-    exists = supabase.table("emails").select("id").eq("message_id", message_id).eq("account_id", account['id']).limit(1).execute()
-    if exists.data:
+
+    # === FETCH FULL RAW EMAIL (for DKIM/SPF) ===
+    raw_email = b""
+    access_token = decrypt_token(account['access_token'])
+    
+    if account["provider"] == "gmail":
+        try:
+            raw_url = f"https://gmail.googleapis.com/gmail/v1/users/{account['email_address']}/messages/{message_id}?format=raw"
+            headers = {"Authorization": f"Bearer {access_token}"}
+            raw_resp = requests.get(raw_url, headers=headers).json()
+            raw_email_b64 = raw_resp.get("raw", "")
+            if raw_email_b64:
+                raw_email_b64 += "=" * (-len(raw_email_b64) % 4)
+                raw_email = base64.urlsafe_b64decode(raw_email_b64)
+        except Exception as e:
+            syslog("raw_email_fetch_error", "save_email", {"provider": "gmail", "error": str(e)})
+    
+    # 🆕 NEW: Fetch raw MIME for Outlook
+    elif account["provider"] == "outlook":
+        try:
+            raw_url = f"https://graph.microsoft.com/v1.0/me/messages/{message_id}/$value"
+            headers = {"Authorization": f"Bearer {access_token}"}
+            raw_resp = requests.get(raw_url, headers=headers, timeout=10)
+            if raw_resp.status_code == 200:
+                raw_email = raw_resp.content
+        except Exception as e:
+            syslog("raw_email_fetch_error", "save_email", {"provider": "outlook", "error": str(e)})
+
+    # === VALIDATE EMAIL AUTHENTICITY ===
+    sender = extract_sender(raw_msg)
+    domain = sender.split("@")[-1] if "@" in sender else ""
+    auth_result = validate_email_authenticity(raw_email, domain, message_id)
+
+    # === EXTRACT HEADERS ===
+    headers = {}
+    if account["provider"] == "gmail":
+        headers = {h["name"]: h["value"] for h in raw_msg.get("payload", {}).get("headers", [])}
+    elif account["provider"] == "outlook":
+        # Outlook provides direct fields
+        headers = {
+            "Subject": raw_msg.get("subject", ""),
+            "From": raw_msg.get("from", {}).get("emailAddress", {}).get("address", ""),
+            "Reply-To": raw_msg.get("replyTo", [{}])[0].get("emailAddress", {}).get("address", "") if raw_msg.get("replyTo") else "",
+        }
+
+    # === SAVE EMAIL TO SUPABASE (emails table) ===
+    email_row = {
+        "user_id": account["user_id"],
+        "account_id": account["id"],
+        "message_id": message_id,
+        "subject": headers.get("Subject", ""),
+        "sender": sender,
+        "from_header": headers.get("From", ""),
+        "reply_to": headers.get("Reply-To", ""),
+        "return_path": headers.get("Return-Path", ""),
+        "body_html": extract_body_html(raw_msg),
+        "highlighted_body_html": highlight_urls(extract_body_html(raw_msg)),
+        "received_at": raw_msg.get("internalDate") if account["provider"] == "gmail" else raw_msg.get("receivedDateTime"),
+        "spf_result": auth_result["spf_result"],
+        "dkim_result": auth_result["dkim_result"],
+        "dmarc_policy": auth_result["dmarc_policy"],
+        "auth_score": auth_result["auth_score"],
+        "is_suspicious": auth_result["auth_score"] < 60,
+    }
+
+    res = supabase.table("emails").insert(email_row).execute()
+    if not res.data:
+        syslog("email_insert_error", "save_email", {"message_id": message_id})
         return
 
-    body_html = extract_body_html(raw_msg)
-    highlighted = highlight_urls(body_html)
+    email_id = res.data[0]["id"]
 
-    email_row = {
-        "user_id": account['user_id'],
-        "account_id": account['id'],
-        "message_id": message_id,
-        "subject": raw_msg.get('subject'),
-        "sender": extract_sender(raw_msg),
-        "body_html": body_html,
-        "highlighted_body_html": highlighted,
-        "received_at": raw_msg.get('receivedDateTime') or raw_msg.get('internalDate')
-    }
-    res = supabase.table("emails").insert(email_row).execute()
-    if res.data:
-        from spam_shield.tasks import run_post_process_pipeline
-        run_post_process_pipeline.delay(res.data[0]['id'])
+    # === INSERT AUTHENTICATION RESULTS (email_auth_results table) ===
+    supabase.table("email_auth_results").insert(
+        {
+            "email_id": email_id,
+            "spf_status": auth_result["spf_result"],
+            "dkim_status": auth_result["dkim_result"],
+            "dmarc_status": auth_result["dmarc_policy"],
+            "validation_summary": auth_result["validation_summary"],
+        }
+    ).execute()
 
-def extract_body_html(msg):
-    payload = msg.get('payload', {})
-    parts = payload.get('parts', [])
-    for part in parts:
-        if part.get('mimeType') == 'text/html':
-            return part.get('body', {}).get('data', '')
-    return payload.get('body', {}).get('data', '')
+    # === EXTRACT & ANALYZE EMBEDDED URLs (url_analysis table) ===
+    try:
+        urls = extract_urls_from_html(email_row["body_html"])
+        for url in urls:
+            url_result = analyze_url(url, email_id)  # 🆕 Pass email_id for async polling
+            supabase.table("url_analysis").insert(
+                {
+                    "email_id": email_id,
+                    "url": url,
+                    "source": "body",
+                    "google_safebrowsing": url_result.get("google_safebrowsing"),
+                    "urlhaus_status": url_result.get("urlhaus_status"),
+                    "urlscan_status": url_result.get("urlscan_status"),
+                    "final_verdict": url_result.get("final_verdict"),
+                }
+            ).execute()
+    except Exception as e:
+        syslog("url_analysis_error", "save_email", {"email_id": email_id, "error": str(e)})
 
-def extract_sender(msg):
-    return msg.get('payload', {}).get('headers', [])[-1].get('value', '') if 'payload' in msg else msg.get('from', {}).get('emailAddress', {}).get('address', '')
+    # === RUN NEXT PIPELINE (Module 4) ===
+    run_post_process_pipeline.delay(email_id)
 
-def highlight_urls(html):
-    if not html:
-        return html
-    urls = re.findall(r'href=[\'"]?([^\'" >]+)', html)
-    for url in urls:
-        if any(x in url.lower() for x in ['login', 'verify', 'bank']):
-            html = html.replace(url, f'<mark style="background:#ff4444;color:white;">{url}</mark>')
-    return html
+
+# ===========================
+# MODULE 4 → Decision Engine
+# ===========================
+@shared_task
+def run_post_process_pipeline(email_id: int):
+    """
+    Run post-processing pipeline:
+    Step 1: Decision Engine (Module 4)
+    """
+    from spam_shield.decision_engine import run_rule_based_classification
+    try:
+        result = run_rule_based_classification(email_id)
+        if result:
+            syslog("pipeline_complete", "run_post_process_pipeline", {"email_id": email_id, "result": result})
+    except Exception as e:
+        syslog("pipeline_error", "run_post_process_pipeline", {"email_id": email_id, "error": str(e)})

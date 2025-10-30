@@ -1,20 +1,26 @@
 from django.contrib import admin
 from django.urls import path
-from rest_framework.decorators import api_view
-from rest_framework.response import Response
-from email_connector import views
-
-@api_view(['GET'])
-def test_auth(request):
-    return Response({"message": "Authenticated", "user_id": request.user.id})
+from email_connector import views, dashboard_views
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+
+    # OAuth
     path('oauth/google/', views.google_login),
     path('oauth/google/callback/', views.google_callback),
-    path('gmail/fetch/', views.fetch_recent_gmail),
     path('oauth/microsoft/', views.microsoft_login),
     path('oauth/microsoft/callback/', views.microsoft_callback),
+
+    # Webhooks
     path('webhook/gmail/', views.gmail_webhook),
     path('webhook/outlook/', views.outlook_webhook),
+
+    # Quarantine APIs
+    path('api/quarantine/list/', views.list_quarantined_emails),
+    path('api/quarantine/release/', views.release_quarantined_email),
+    path('api/quarantine/delete/', views.delete_quarantined_email),
+
+    # Dashboard APIs
+    path('api/accounts/', dashboard_views.list_connected_accounts),
+    path('api/dashboard/summary/', dashboard_views.dashboard_summary),
 ]

@@ -16,6 +16,11 @@ psycopg2-binary = "*"
 redis = "*"
 celery = "*"
 cryptography = "*"
+dkimpy = "*"
+dnspython = "*"
+dmarc = "*"
+beautifulsoup4 = "*"
+django-cors-headers = "*"
 
 [dev-packages]
 
