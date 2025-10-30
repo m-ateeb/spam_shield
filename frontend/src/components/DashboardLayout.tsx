@@ -1,7 +1,7 @@
-import { ReactNode } from "react";
+import type { ReactNode } from "react";
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, Shield, User } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { LayoutDashboard, Shield, User, LogOut } from "lucide-react";
+import { cn } from "../lib/utils";
 
 interface DashboardLayoutProps {
   children: ReactNode;
@@ -48,6 +48,34 @@ export const DashboardLayout = ({ children, type }: DashboardLayoutProps) => {
             >
               <LayoutDashboard className="h-5 w-5" />
               <span>Admin Dashboard</span>
+            </NavLink>
+            <NavLink
+              to="/"
+              className={({ isActive }) =>
+                cn(
+                  "flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200",
+                  isActive
+                    ? "bg-accent text-accent-foreground"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                )
+              }
+            >
+              <LogOut className="h-5 w-5" />
+              <span>Home</span>
+            </NavLink>
+            <NavLink
+              to="/logout"
+              className={({ isActive }) =>
+                cn(
+                  "flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200",
+                  isActive
+                    ? "bg-accent text-accent-foreground"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                )
+              }
+            >
+              <LogOut className="h-5 w-5" />
+              <span>Logout</span>
             </NavLink>
           </nav>
         </div>

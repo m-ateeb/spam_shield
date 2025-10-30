@@ -1,13 +1,13 @@
 import { Link, useLocation } from "react-router-dom";
 import { Shield, Moon, Sun, Menu } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { useTheme } from "@/components/ThemeProvider";
-import { cn } from "@/lib/utils";
+import { Button } from "../components/ui/button";
+import { useTheme } from "../components/ThemeProvider";
+import { cn } from "../lib/utils";
 import {
   Sheet,
   SheetContent,
   SheetTrigger,
-} from "@/components/ui/sheet";
+} from "../components/ui/sheet";
 
 const navigation = [
   { name: "Home", href: "/" },
@@ -69,10 +69,10 @@ export const Header = () => {
 
           <div className="hidden md:flex items-center gap-2">
             <Button variant="ghost" asChild>
-              <Link to="/user">Dashboard</Link>
+              <Link to="/login">Login</Link>
             </Button>
             <Button asChild className="bg-accent hover:bg-accent/90">
-              <Link to="/admin">Admin</Link>
+              <Link to="/signup">Signup</Link>
             </Button>
           </div>
 
@@ -101,10 +101,10 @@ export const Header = () => {
                 ))}
                 <div className="border-t border-border pt-4 space-y-2">
                   <Button variant="outline" className="w-full" asChild>
-                    <Link to="/user">Dashboard</Link>
+                    <Link to="/login">Login</Link>
                   </Button>
                   <Button className="w-full bg-accent hover:bg-accent/90" asChild>
-                    <Link to="/admin">Admin</Link>
+                    <Link to="/signup">Signup</Link>
                   </Button>
                 </div>
               </div>
