@@ -1,7 +1,7 @@
-import { DashboardLayout } from "@/components/DashboardLayout";
-import { StatCard } from "@/components/StatCard";
-import { QuarantineTable } from "@/components/QuarantineTable";
-import { ActivityChart } from "@/components/ActivityChart";
+import { DashboardLayout } from "../../components/DashboardLayout";
+import { StatCard } from "../../components/StatCard";
+import { QuarantineTable } from "../../components/QuarantineTable";
+import { ActivityChart } from "../../components/ActivityChart";
 import { Mail, Shield, Inbox, TrendingUp } from "lucide-react";
 
 const UserDashboard = () => {

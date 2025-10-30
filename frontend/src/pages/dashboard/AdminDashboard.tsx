@@ -1,8 +1,8 @@
-import { DashboardLayout } from "@/components/DashboardLayout";
-import { StatCard } from "@/components/StatCard";
+import { DashboardLayout } from "../../components/DashboardLayout";
+import { StatCard } from "../../components/StatCard";
 import { Users, UserCheck, Shield, TrendingUp, Settings, Database } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Button } from "../../components/ui/button";
+import { Card } from "../../components/ui/card";
 import {
   Table,
   TableBody,
@@ -10,8 +10,8 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
+} from "../../components/ui/table";
+import { Badge } from "../../components/ui/badge";
 
 const recentUsers = [
   { id: "1", name: "John Doe", email: "john@example.com", status: "active", joined: "2025-01-10" },
