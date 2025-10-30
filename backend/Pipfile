@@ -19,6 +19,7 @@ cryptography = "*"
 dkimpy = "*"
 dnspython = "*"
 dmarc = "*"
+beautifulsoup4 = "*"
 
 [dev-packages]
 
