@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { supabase } from '@/lib/supabaseClient'
+import { syncTokenToExtension } from '@/lib/extensionAuth'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
@@ -35,6 +36,8 @@ export const Signup = () => {
     }
 
     if (data.session) {
+      // Sync auth to extension
+      await syncTokenToExtension(data.session.access_token, data.session.user.email || '')
       navigate('/dashboard')
       return
     }
@@ -128,3 +131,4 @@ export const Signup = () => {
     </div>
   )
 }
+

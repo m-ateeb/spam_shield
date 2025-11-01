@@ -12,13 +12,12 @@ class SupabaseJWTAuthentication(BaseAuthentication):
             return None
         token = auth_header.split(' ')[1]
         try:
-            # Fetch JWKS dynamically (cache in production for performance)
+            # Try RS256 verification first using JWKS
             jwks_url = f"{os.getenv('SUPABASE_URL')}/auth/v1/jwks"
             jwks_response = requests.get(jwks_url)
             jwks_response.raise_for_status()
             jwks = jwks_response.json()
 
-            # Decode and verify JWT with JWKS (RS256)
             decoded = jwt.decode(
                 token,
                 jwks,
@@ -27,7 +26,6 @@ class SupabaseJWTAuthentication(BaseAuthentication):
                 options={
                     "verify_signature": True,
                     "verify_exp": True,
-                    "verify_iss": True,
                 }
             )
 
@@ -44,7 +42,34 @@ class SupabaseJWTAuthentication(BaseAuthentication):
 
             # Return user object and token for views
             return (user.user, token)
-        except JWTError as e:
-            raise AuthenticationFailed(f'Invalid token: {str(e)}')
+        except JWTError:
+            # Fallback: Some Supabase projects sign tokens with HS256 using JWT secret
+            secret = os.getenv('SUPABASE_JWT_SECRET')
+            if not secret:
+                raise
+
+            try:
+                decoded = jwt.decode(
+                    token,
+                    secret,
+                    algorithms=["HS256"],
+                    audience="authenticated",
+                    options={
+                        "verify_signature": True,
+                        "verify_exp": True,
+                    }
+                )
+
+                sub = decoded.get('sub')
+                if not sub:
+                    raise AuthenticationFailed('No valid identifier (sub) in token')
+
+                user = supabase.auth.get_user(token)
+                if not user.user.email:
+                    print("User authenticated without email; using sub:", sub)
+
+                return (user.user, token)
+            except JWTError as e:
+                raise AuthenticationFailed(f'Invalid token: {str(e)}')
         except requests.exceptions.RequestException as e:
             raise AuthenticationFailed(f'JWKS fetch failed: {str(e)}')

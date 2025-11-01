@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.urls import path
-from email_connector import views, dashboard_views
+from email_connector import views, dashboard_views, extension_views
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -23,4 +23,8 @@ urlpatterns = [
     # Dashboard APIs
     path('api/accounts/', dashboard_views.list_connected_accounts),
     path('api/dashboard/summary/', dashboard_views.dashboard_summary),
+
+    # Extension APIs
+    path('api/extension/analyze', extension_views.analyze_email_extension),
+    path('api/extension/health', extension_views.extension_health_check),
 ]

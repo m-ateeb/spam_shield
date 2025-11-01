@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import type { Session, User, AuthChangeEvent } from "@supabase/supabase-js";
+import { syncTokenToExtension, clearExtensionAuth } from "@/lib/extensionAuth";
 
 interface AuthContextType {
   user: User | null;
@@ -35,10 +36,20 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     // Listen to auth changes
     const { data: listener } = supabase.auth.onAuthStateChange(
-      (_event: AuthChangeEvent, session: Session | null) => {
+      async (event: AuthChangeEvent, session: Session | null) => {
         setSession(session);
         setUser(session?.user ?? null);
         setLoading(false);
+        
+        // Sync to extension on sign in
+        if (event === 'SIGNED_IN' && session) {
+          await syncTokenToExtension(session.access_token, session.user.email || '');
+        }
+        
+        // Clear extension on sign out
+        if (event === 'SIGNED_OUT') {
+          await clearExtensionAuth();
+        }
       }
     );
 

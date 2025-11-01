@@ -2,6 +2,7 @@ import { useState } from "react"
 import { useNavigate, Link } from "react-router-dom"
 import { supabase } from "@/lib/supabaseClient"
 import { useAuth } from "@/context/AuthContext"
+import { syncTokenToExtension } from "@/lib/extensionAuth"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
@@ -33,6 +34,8 @@ export default function Login() {
     }
 
     if (data.session) {
+      // Sync auth to extension
+      await syncTokenToExtension(data.session.access_token, data.session.user.email || '')
       navigate("/dashboard")
     }
   }
@@ -123,3 +126,4 @@ export default function Login() {
     </div>
   )
 }
+

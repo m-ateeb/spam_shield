@@ -21,7 +21,7 @@ import { PublicRoute } from "./components/auth/PublicRoute";
 import Login from "./components/auth/Login";
 import { Signup } from "./components/auth/Signup";
 import { Logout } from "./components/auth/Logout";
-import { ProtectedRoute } from "./routes/protectedRoutes";
+import { ProtectedRoute } from "./routes/ProtectedRoutes";
 
 
 const queryClient = new QueryClient();
