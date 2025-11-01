@@ -1,8 +1,8 @@
 import { Link } from "react-router-dom";
 import { Shield, ArrowRight, CheckCircle, Zap, Lock, BarChart } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Header } from "@/components/Header";
-import { Footer } from "@/components/Footer";
+import { Button } from "../../components/ui/button";
+import { Header } from "../../components/Header";
+import { Footer } from "../../components/Footer";
 
 const Home = () => {
   return (

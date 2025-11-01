@@ -1,13 +1,14 @@
 import { Link, useLocation } from "react-router-dom";
-import { Shield, Moon, Sun, Menu } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { useTheme } from "@/components/ThemeProvider";
-import { cn } from "@/lib/utils";
+import { Shield, Moon, Sun, Menu, LayoutDashboard } from "lucide-react";
+import { Button } from "../components/ui/button";
+import { useTheme } from "../components/ThemeProvider";
+import { useAuth } from "../context/AuthContext";
+import { cn } from "../lib/utils";
 import {
   Sheet,
   SheetContent,
   SheetTrigger,
-} from "@/components/ui/sheet";
+} from "../components/ui/sheet";
 
 const navigation = [
   { name: "Home", href: "/" },
@@ -19,6 +20,7 @@ const navigation = [
 
 export const Header = () => {
   const { theme, toggleTheme } = useTheme();
+  const { user } = useAuth();
   const location = useLocation();
 
   const isActive = (path: string) => location.pathname === path;
@@ -68,12 +70,28 @@ export const Header = () => {
           </Button>
 
           <div className="hidden md:flex items-center gap-2">
-            <Button variant="ghost" asChild>
-              <Link to="/user">Dashboard</Link>
-            </Button>
-            <Button asChild className="bg-accent hover:bg-accent/90">
-              <Link to="/admin">Admin</Link>
-            </Button>
+            {user ? (
+              <>
+                <Button variant="ghost" asChild>
+                  <Link to="/dashboard" className="flex items-center gap-2">
+                    <LayoutDashboard className="h-4 w-4" />
+                    Dashboard
+                  </Link>
+                </Button>
+                <Button variant="outline" asChild>
+                  <Link to="/logout">Logout</Link>
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button variant="ghost" asChild>
+                  <Link to="/login">Login</Link>
+                </Button>
+                <Button asChild className="bg-accent hover:bg-accent/90">
+                  <Link to="/signup">Signup</Link>
+                </Button>
+              </>
+            )}
           </div>
 
           {/* Mobile Menu */}
@@ -100,12 +118,28 @@ export const Header = () => {
                   </Link>
                 ))}
                 <div className="border-t border-border pt-4 space-y-2">
-                  <Button variant="outline" className="w-full" asChild>
-                    <Link to="/user">Dashboard</Link>
-                  </Button>
-                  <Button className="w-full bg-accent hover:bg-accent/90" asChild>
-                    <Link to="/admin">Admin</Link>
-                  </Button>
+                  {user ? (
+                    <>
+                      <Button variant="outline" className="w-full" asChild>
+                        <Link to="/dashboard" className="flex items-center gap-2 justify-center">
+                          <LayoutDashboard className="h-4 w-4" />
+                          Dashboard
+                        </Link>
+                      </Button>
+                      <Button className="w-full" variant="outline" asChild>
+                        <Link to="/logout">Logout</Link>
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <Button variant="outline" className="w-full" asChild>
+                        <Link to="/login">Login</Link>
+                      </Button>
+                      <Button className="w-full bg-accent hover:bg-accent/90" asChild>
+                        <Link to="/signup">Signup</Link>
+                      </Button>
+                    </>
+                  )}
                 </div>
               </div>
             </SheetContent>

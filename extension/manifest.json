@@ -1,0 +1,73 @@
+{
+  "manifest_version": 3,
+  "name": "Spam Shield - Email Protection",
+  "version": "1.0.0",
+  "description": "AI-powered spam and phishing protection for Gmail and Outlook",
+  "icons": {
+    "16": "assets/icons/icon16.png",
+    "32": "assets/icons/icon32.png",
+    "48": "assets/icons/icon48.png",
+    "128": "assets/icons/icon128.png"
+  },
+  "permissions": [
+    "storage",
+    "notifications",
+    "activeTab",
+    "identity"
+  ],
+  "host_permissions": [
+    "https://mail.google.com/*",
+    "https://outlook.live.com/*",
+    "https://outlook.office365.com/*",
+    "https://outlook.office.com/*",
+    "http://localhost:8000/*",
+    "http://localhost:5173/*",
+    "https://*.ngrok-free.dev/*",
+    "https://*.supabase.co/*"
+  ],
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://mail.google.com/*"],
+      "js": ["content/gmail.js"],
+      "css": ["content/styles.css"],
+      "run_at": "document_end"
+    },
+    {
+      "matches": [
+        "https://outlook.live.com/*",
+        "https://outlook.office365.com/*",
+        "https://outlook.office.com/*"
+      ],
+      "js": ["content/outlook.js"],
+      "css": ["content/styles.css"],
+      "run_at": "document_end"
+    },
+    {
+      "matches": ["http://localhost:5173/*", "http://127.0.0.1:5173/*"],
+      "js": ["content/website-bridge.js"],
+      "run_at": "document_start",
+      "all_frames": false
+    }
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "assets/icons/icon16.png",
+      "32": "assets/icons/icon32.png",
+      "48": "assets/icons/icon48.png",
+      "128": "assets/icons/icon128.png"
+    }
+  },
+  "options_page": "options/options.html",
+  "web_accessible_resources": [
+    {
+      "resources": ["assets/*"],
+      "matches": ["https://mail.google.com/*", "https://outlook.live.com/*", "https://outlook.office365.com/*"]
+    }
+  ]
+}
+

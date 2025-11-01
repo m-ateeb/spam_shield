@@ -1,7 +1,8 @@
-import { ReactNode } from "react";
+import type { ReactNode } from "react";
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, Shield, User } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { LayoutDashboard, Shield, User, LogOut, Home, Mail, Settings, ChartBar } from "lucide-react";
+import { cn } from "../lib/utils";
+import { useAuth } from "../context/AuthContext";
 
 interface DashboardLayoutProps {
   children: ReactNode;
@@ -9,6 +10,8 @@ interface DashboardLayoutProps {
 }
 
 export const DashboardLayout = ({ children, type }: DashboardLayoutProps) => {
+  const { user } = useAuth();
+  
   return (
     <div className="min-h-screen bg-background flex">
       {/* Sidebar */}
@@ -20,8 +23,9 @@ export const DashboardLayout = ({ children, type }: DashboardLayoutProps) => {
           </div>
           
           <nav className="space-y-1">
+            {/* User Dashboard - Always visible */}
             <NavLink
-              to="/user"
+              to="/dashboard"
               className={({ isActive }) =>
                 cn(
                   "flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200",
@@ -31,8 +35,8 @@ export const DashboardLayout = ({ children, type }: DashboardLayoutProps) => {
                 )
               }
             >
-              <User className="h-5 w-5" />
-              <span>User Dashboard</span>
+              <ChartBar className="h-5 w-5" />
+              <span>Dashboard</span>
             </NavLink>
             
             <NavLink
@@ -48,6 +52,49 @@ export const DashboardLayout = ({ children, type }: DashboardLayoutProps) => {
             >
               <LayoutDashboard className="h-5 w-5" />
               <span>Admin Dashboard</span>
+            </NavLink>
+            <NavLink
+              to="/dashboard#quarantine"
+              className="flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200 text-muted-foreground hover:bg-muted hover:text-foreground"
+            >
+              <Mail className="h-5 w-5" />
+              <span>Quarantine</span>
+            </NavLink>
+            
+            {/* Settings */}
+            <NavLink
+              to="/settings"
+              className={({ isActive }) =>
+                cn(
+                  "flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200",
+                  isActive
+                    ? "bg-accent text-accent-foreground"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                )
+              }
+            >
+              <Settings className="h-5 w-5" />
+              <span>Settings</span>
+            </NavLink>
+            
+            <div className="my-4 border-t border-border"></div>
+            
+            {/* Home */}
+            <NavLink
+              to="/"
+              className="flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200 text-muted-foreground hover:bg-muted hover:text-foreground"
+            >
+              <Home className="h-5 w-5" />
+              <span>Home</span>
+            </NavLink>
+            
+            {/* Logout */}
+            <NavLink
+              to="/logout"
+              className="flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200 text-muted-foreground hover:bg-muted hover:text-foreground"
+            >
+              <LogOut className="h-5 w-5" />
+              <span>Logout</span>
             </NavLink>
           </nav>
         </div>

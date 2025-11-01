@@ -1,22 +1,30 @@
-"""
-URL configuration for spam_shield project.
-
-The `urlpatterns` list routes URLs to views. For more information please see:
-    https://docs.djangoproject.com/en/5.2/topics/http/urls/
-Examples:
-Function views
-    1. Add an import:  from my_app import views
-    2. Add a URL to urlpatterns:  path('', views.home, name='home')
-Class-based views
-    1. Add an import:  from other_app.views import Home
-    2. Add a URL to urlpatterns:  path('', Home.as_view(), name='home')
-Including another URLconf
-    1. Import the include() function: from django.urls import include, path
-    2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
-"""
 from django.contrib import admin
 from django.urls import path
+from email_connector import views, dashboard_views, extension_views
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+
+    # OAuth
+    path('oauth/google/', views.google_login),
+    path('oauth/google/callback/', views.google_callback),
+    path('oauth/microsoft/', views.microsoft_login),
+    path('oauth/microsoft/callback/', views.microsoft_callback),
+
+    # Webhooks
+    path('webhook/gmail/', views.gmail_webhook),
+    path('webhook/outlook/', views.outlook_webhook),
+
+    # Quarantine APIs
+    path('api/quarantine/list/', views.list_quarantined_emails),
+    path('api/quarantine/release/', views.release_quarantined_email),
+    path('api/quarantine/delete/', views.delete_quarantined_email),
+
+    # Dashboard APIs
+    path('api/accounts/', dashboard_views.list_connected_accounts),
+    path('api/dashboard/summary/', dashboard_views.dashboard_summary),
+
+    # Extension APIs
+    path('api/extension/analyze', extension_views.analyze_email_extension),
+    path('api/extension/health', extension_views.extension_health_check),
 ]

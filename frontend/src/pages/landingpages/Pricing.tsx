@@ -112,7 +112,7 @@ const Pricing = () => {
                   className={`w-full mb-6 ${
                     plan.popular
                       ? "bg-accent hover:bg-accent/90"
-                      : "bg-secondary hover:bg-secondary/80"
+                      : "bg-accent hover:bg-accent/80"
                   }`}
                   asChild
                 >
