@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Spam Shield</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <!-- Header -->
+    <div class="header">
+      <div class="logo">
+        <span class="shield-icon">🛡️</span>
+        <h1>Spam Shield</h1>
+      </div>
+      <button id="settingsBtn" class="icon-btn" title="Settings">⚙️</button>
+    </div>
+
+    <!-- Auth Status -->
+    <div id="authSection">
+      <!-- Not Logged In -->
+      <div id="notAuthView" class="auth-view" style="display: none;">
+        <div class="message-box info">
+          <p>Please login to start protecting your emails</p>
+        </div>
+        <button id="loginBtn" class="btn btn-primary">
+          Login to Spam Shield
+        </button>
+      </div>
+
+      <!-- Logged In -->
+      <div id="authView" class="auth-view" style="display: none;">
+        <!-- Stats Summary -->
+        <div id="statsSection">
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-icon">📧</div>
+              <div class="stat-content">
+                <div class="stat-value" id="totalEmails">-</div>
+                <div class="stat-label">Total Emails</div>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon">🚨</div>
+              <div class="stat-content">
+                <div class="stat-value" id="spamBlocked">-</div>
+                <div class="stat-label">Spam Blocked</div>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon">⚠️</div>
+              <div class="stat-content">
+                <div class="stat-value" id="quarantined">-</div>
+                <div class="stat-label">Quarantined</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Connected Accounts -->
+        <div class="section">
+          <h3>Connected Accounts</h3>
+          <div id="accountsList">
+            <p class="loading">Loading accounts...</p>
+          </div>
+          <div class="account-actions">
+            <button id="connectGmailBtn" class="btn btn-secondary">
+              <span class="btn-icon">📧</span> Connect Gmail
+            </button>
+            <button id="connectOutlookBtn" class="btn btn-secondary">
+              <span class="btn-icon">📮</span> Connect Outlook
+            </button>
+          </div>
+        </div>
+
+        <!-- Quick Actions -->
+        <div class="section">
+          <h3>Quick Actions</h3>
+          <div class="quick-actions">
+            <button id="viewQuarantineBtn" class="action-btn">
+              <span class="action-icon">🗃️</span>
+              <span>View Quarantine</span>
+            </button>
+            <button id="openDashboardBtn" class="action-btn">
+              <span class="action-icon">📊</span>
+              <span>Full Dashboard</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="footer">
+          <button id="logoutBtn" class="btn btn-text">Logout</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Loading State -->
+    <div id="loadingView" class="loading-view">
+      <div class="spinner">⏳</div>
+      <p>Loading...</p>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
+

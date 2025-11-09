@@ -1,16 +1,55 @@
+import { useState, useEffect } from "react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import api from "@/lib/api";
 
-const data = [
-  { day: "Mon", spam: 45, clean: 120 },
-  { day: "Tue", spam: 52, clean: 135 },
-  { day: "Wed", spam: 38, clean: 98 },
-  { day: "Thu", spam: 61, clean: 142 },
-  { day: "Fri", spam: 48, clean: 128 },
-  { day: "Sat", spam: 25, clean: 65 },
-  { day: "Sun", spam: 18, clean: 45 },
-];
+interface WeeklyActivityData {
+  day: string;
+  spam: number;
+  clean: number;
+}
 
 export const ActivityChart = () => {
+  const [data, setData] = useState<WeeklyActivityData[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        const response = await api.get("/api/dashboard/summary/");
+        const weeklyActivity = response.data.weekly_activity || [];
+        
+        // If no data, show empty chart with all days
+        if (weeklyActivity.length === 0) {
+          const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+          setData(dayNames.map(day => ({ day, spam: 0, clean: 0 })));
+        } else {
+          setData(weeklyActivity);
+        }
+      } catch (err) {
+        console.error("Failed to load activity data:", err);
+        // Fallback to empty data
+        const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+        setData(dayNames.map(day => ({ day, spam: 0, clean: 0 })));
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="bg-card rounded-xl border border-border p-6 animate-slide-up">
+        <h2 className="text-lg font-semibold mb-6">Weekly Activity</h2>
+        <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+          Loading chart data...
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="bg-card rounded-xl border border-border p-6 animate-slide-up">
       <h2 className="text-lg font-semibold mb-6">Weekly Activity</h2>

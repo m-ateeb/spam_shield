@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Spam Shield - Settings</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-content">
+        <div class="logo">
+          <span class="shield-icon">🛡️</span>
+          <h1>Spam Shield Settings</h1>
+        </div>
+        <button id="saveBtn" class="btn btn-primary">Save Changes</button>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <!-- Protection Settings -->
+      <section class="settings-section">
+        <h2>🛡️ Protection Settings</h2>
+        
+        <div class="setting-item">
+          <div class="setting-info">
+            <label for="autoQuarantine">Auto-Quarantine Suspicious Emails</label>
+            <p class="description">Automatically move suspicious emails to quarantine</p>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" id="autoQuarantine" checked>
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+
+        <div class="setting-item">
+          <div class="setting-info">
+            <label for="scanInRealTime">Real-Time Email Scanning</label>
+            <p class="description">Scan emails as you open them in Gmail/Outlook</p>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" id="scanInRealTime" checked>
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+
+        <div class="setting-item">
+          <div class="setting-info">
+            <label for="strictMode">Strict Mode</label>
+            <p class="description">More aggressive spam detection (may have false positives)</p>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" id="strictMode">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+      </section>
+
+      <!-- Notification Settings -->
+      <section class="settings-section">
+        <h2>🔔 Notifications</h2>
+        
+        <div class="setting-item">
+          <div class="setting-info">
+            <label for="notificationsEnabled">Enable Notifications</label>
+            <p class="description">Get notified when spam is detected</p>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" id="notificationsEnabled" checked>
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+
+        <div class="setting-item">
+          <div class="setting-info">
+            <label for="notifyOnQuarantine">Quarantine Notifications</label>
+            <p class="description">Notify when emails are moved to quarantine</p>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" id="notifyOnQuarantine" checked>
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+
+        <div class="setting-item">
+          <div class="setting-info">
+            <label for="notifyOnPhishing">Phishing Alert</label>
+            <p class="description">High priority alerts for phishing attempts</p>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" id="notifyOnPhishing" checked>
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+      </section>
+
+      <!-- API Settings -->
+      <section class="settings-section">
+        <h2>🔌 API Configuration</h2>
+        
+        <div class="setting-item">
+          <div class="setting-info">
+            <label for="apiBaseUrl">Backend API URL</label>
+            <p class="description">URL of your Spam Shield backend server</p>
+          </div>
+          <input 
+            type="text" 
+            id="apiBaseUrl" 
+            class="text-input"
+            placeholder="http://localhost:8000"
+            value="http://localhost:8000"
+          >
+        </div>
+
+        <div class="setting-item">
+          <div class="setting-info">
+            <label for="frontendUrl">Frontend Dashboard URL</label>
+            <p class="description">URL of your web dashboard</p>
+          </div>
+          <input 
+            type="text" 
+            id="frontendUrl" 
+            class="text-input"
+            placeholder="http://localhost:5173"
+            value="http://localhost:5173"
+          >
+        </div>
+      </section>
+
+      <!-- Data & Privacy -->
+      <section class="settings-section">
+        <h2>🔒 Data & Privacy</h2>
+        
+        <div class="info-box">
+          <p><strong>Your privacy matters:</strong></p>
+          <ul>
+            <li>✓ Email content is analyzed on our secure servers and never stored permanently</li>
+            <li>✓ Only email metadata (sender, subject, links) is retained for security analysis</li>
+            <li>✓ OAuth tokens are encrypted and stored locally</li>
+            <li>✓ You can revoke access anytime from your email provider settings</li>
+          </ul>
+        </div>
+
+        <div class="setting-item">
+          <button id="clearCacheBtn" class="btn btn-secondary">
+            🗑️ Clear Local Cache
+          </button>
+        </div>
+
+        <div class="setting-item">
+          <button id="exportDataBtn" class="btn btn-secondary">
+            📥 Export My Data
+          </button>
+        </div>
+      </section>
+
+      <!-- About -->
+      <section class="settings-section">
+        <h2>ℹ️ About</h2>
+        <div class="about-info">
+          <p><strong>Spam Shield Extension</strong></p>
+          <p>Version: 1.0.0</p>
+          <p>AI-powered email protection for Gmail and Outlook</p>
+          <div class="links">
+            <a href="#" id="helpLink">Help Center</a> •
+            <a href="#" id="privacyLink">Privacy Policy</a> •
+            <a href="#" id="termsLink">Terms of Service</a>
+          </div>
+        </div>
+      </section>
+
+      <!-- Status Message -->
+      <div id="statusMessage" class="status-message"></div>
+    </main>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>
+

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { supabase } from '@/lib/supabaseClient'
+import { useAuth } from '@/context/AuthContext'
+import api from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
@@ -15,6 +16,7 @@ export const Signup = () => {
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
   const navigate = useNavigate()
+  const { signInWithOAuth, refreshUser } = useAuth()
 
   // Email/password signup
   const handleSignup = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -22,43 +24,37 @@ export const Signup = () => {
     setLoading(true)
     setMessage('')
 
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { data: { role: 'user' } },
-    })
-    setLoading(false)
-
-    if (error) {
-      setMessage(error.message)
-      return
+    try {
+      const response = await api.post('/api/auth/signup/', {
+        email,
+        password,
+      })
+      
+      if (response.data.token) {
+        localStorage.setItem("auth_token", response.data.token)
+        await refreshUser()
+        navigate("/dashboard")
+      }
+    } catch (error: any) {
+      setMessage(error.response?.data?.error || 'Signup failed. Please try again.')
+    } finally {
+      setLoading(false)
     }
-
-    if (data.session) {
-      navigate('/dashboard')
-      return
-    }
-
-    setMessage('Check your email for confirmation!')
   }
 
   // OAuth signup/login
-  const handleOAuth = async (provider: 'google' | 'azure') => {
+  const handleOAuth = async (provider: 'google' | 'microsoft') => {
     setLoading(true)
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider,
-      options: { redirectTo: window.location.origin + '/dashboard' },
-    })
+    await signInWithOAuth(provider)
     setLoading(false)
-    if (error) setMessage(error.message)
   }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 px-4">
       <Card className="w-full max-w-md p-8 rounded-2xl shadow-xl space-y-6 bg-white dark:bg-gray-800">
-        <CardHeader className="text-center">
-          <CardTitle className="text-2xl font-semibold">Create your account</CardTitle>
-          <CardDescription>Start protecting your inbox in minutes.</CardDescription>
+        <CardHeader className="text-center space-y-2">
+          <CardTitle className="text-3xl font-bold">Create your account</CardTitle>
+          <CardDescription className="text-base">Start protecting your inbox in minutes</CardDescription>
         </CardHeader>
 
         <CardContent className="space-y-4">
@@ -72,6 +68,7 @@ export const Signup = () => {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
+                disabled={loading}
               />
             </div>
 
@@ -84,7 +81,10 @@ export const Signup = () => {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
+                disabled={loading}
+                minLength={8}
               />
+              <p className="text-xs text-gray-500">Password must be at least 8 characters</p>
             </div>
 
             {message && (
@@ -98,22 +98,31 @@ export const Signup = () => {
             </Button>
           </form>
 
-          <Separator className="my-4" />
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <Separator />
+            </div>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-white dark:bg-gray-800 px-2 text-gray-500">Or continue with</span>
+            </div>
+          </div>
 
           <div className="flex flex-col gap-3">
             <Button
               variant="outline"
-              className="flex items-center justify-center gap-2"
+              className="flex items-center justify-center gap-3 h-11"
               onClick={() => handleOAuth('google')}
+              disabled={loading}
             >
-              <FcGoogle size={20} /> Sign up with Google
+              <FcGoogle size={22} /> Sign up with Google
             </Button>
             <Button
               variant="outline"
-              className="flex items-center justify-center gap-2"
-              onClick={() => handleOAuth('azure')}
+              className="flex items-center justify-center gap-3 h-11"
+              onClick={() => handleOAuth('microsoft')}
+              disabled={loading}
             >
-              <FaMicrosoft size={20} /> Sign up with Microsoft
+              <FaMicrosoft size={22} className="text-blue-600" /> Sign up with Microsoft
             </Button>
           </div>
 

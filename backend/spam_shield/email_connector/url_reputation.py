@@ -5,7 +5,8 @@ import requests
 import time
 from celery import shared_task
 from dotenv import load_dotenv
-from email_connector.supabase_client import syslog
+from email_connector.db_utils import syslog
+from email_connector.models import URLAnalysis
 
 load_dotenv()
 
@@ -213,11 +214,13 @@ def poll_urlscan_result(self, scan_id: str, email_id: int, url: str):
                 final_verdict = "safe"
             
             # Update database
-            from email_connector.supabase_client import supabase
-            supabase.table("url_analysis").update({
-                "urlscan_status": final_verdict,
-                "final_verdict": final_verdict
-            }).eq("email_id", email_id).eq("url", url).execute()
+            URLAnalysis.objects.filter(
+                email_id=email_id,
+                url=url
+            ).update(
+                urlscan_status=final_verdict,
+                final_verdict=final_verdict
+            )
             
             syslog("urlscan_complete", "poll_urlscan_result", {
                 "email_id": email_id, "url": url, "verdict": final_verdict

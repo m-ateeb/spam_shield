@@ -1,16 +1,36 @@
 import axios from "axios";
-import { supabase } from "./supabaseClient";
+
+const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_BACKEND_URL || "https://your-backend-domain.com",
+  baseURL: API_URL,
   headers: { "Content-Type": "application/json" },
 });
 
-api.interceptors.request.use(async (config) => {
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
-  if (token) config.headers.Authorization = `Bearer ${token}`;
+// Get token from localStorage
+const getToken = () => {
+  return localStorage.getItem("auth_token");
+};
+
+api.interceptors.request.use((config) => {
+  const token = getToken();
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
   return config;
 });
+
+// Handle 401 errors - redirect to login
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem("auth_token");
+      localStorage.removeItem("user");
+      window.location.href = "/login";
+    }
+    return Promise.reject(error);
+  }
+);
 
 export default api;

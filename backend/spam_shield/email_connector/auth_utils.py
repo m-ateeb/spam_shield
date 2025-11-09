@@ -1,40 +1,38 @@
 from django.http import JsonResponse
-from django.conf import settings
+from django.contrib.auth.models import User
 from functools import wraps
-from jose import jwt
-import requests
+from rest_framework.authtoken.models import Token
 
 
-def extract_jwt(request):
-    """Extract JWT from Authorization header."""
-    auth = request.headers.get("Authorization", "")
-    if auth.startswith("Bearer "):
-        return auth.split(" ")[1]
-    return None
-
-
-def get_user_id_from_jwt(token: str):
-    """Decode Supabase JWT and extract user_id."""
-    try:
-        jwks_url = f"{settings.SUPABASE_URL}/auth/v1/jwks"
-        jwks = requests.get(jwks_url).json()
-        payload = jwt.decode(token, jwks, algorithms=["RS256"], audience="authenticated")
-        return payload.get("sub")
-    except Exception as e:
-        print("JWT decode failed:", e)
-        return None
-
-
-def require_jwt(view_func):
-    """Decorator for JWT-protected endpoints."""
+def require_auth(view_func):
+    """Decorator for authenticated endpoints using Django user (supports both session and token auth)."""
     @wraps(view_func)
     def wrapper(request, *args, **kwargs):
-        jwt_token = extract_jwt(request)
-        if not jwt_token:
-            return JsonResponse({"error": "No JWT provided"}, status=401)
-        user_id = get_user_id_from_jwt(jwt_token)
-        if not user_id:
-            return JsonResponse({"error": "Invalid or expired JWT"}, status=401)
-        request.user_id = user_id
-        return view_func(request, *args, **kwargs)
+        # First check if user is authenticated via session
+        if request.user and request.user.is_authenticated:
+            request.user_id = str(request.user.id)
+            return view_func(request, *args, **kwargs)
+        
+        # If not session auth, try token authentication
+        auth_header = request.META.get('HTTP_AUTHORIZATION', '')
+        if auth_header:
+            # Support both 'Token' and 'Bearer' prefixes
+            if auth_header.startswith('Token '):
+                token_key = auth_header.split(' ', 1)[1] if ' ' in auth_header else ''
+            elif auth_header.startswith('Bearer '):
+                token_key = auth_header.split(' ', 1)[1] if ' ' in auth_header else ''
+            else:
+                token_key = None
+            
+            if token_key:
+                try:
+                    token = Token.objects.get(key=token_key)
+                    request.user = token.user
+                    request.user_id = str(token.user.id)
+                    return view_func(request, *args, **kwargs)
+                except Token.DoesNotExist:
+                    pass
+        
+        # No valid authentication found
+        return JsonResponse({"error": "Authentication required"}, status=401)
     return wrapper

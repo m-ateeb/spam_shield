@@ -13,6 +13,12 @@ import Contact from "./pages/landingpages/Contact";
 
 import UserDashboard from "./pages/dashboard/UserDashboard";
 import AdminDashboard from "./pages/dashboard/AdminDashboard";
+import Settings from "./pages/Settings";
+import Quarantine from "./pages/Quarantine";
+import AdminUsers from "./pages/admin/AdminUsers";
+import AdminRules from "./pages/admin/AdminRules";
+import AdminReports from "./pages/admin/AdminReports";
+import AdminSettings from "./pages/admin/AdminSettings";
 
 import NotFound from "./pages/NotFound";
 
@@ -21,7 +27,7 @@ import { PublicRoute } from "./components/auth/PublicRoute";
 import Login from "./components/auth/Login";
 import { Signup } from "./components/auth/Signup";
 import { Logout } from "./components/auth/Logout";
-import { ProtectedRoute } from "./routes/protectedRoutes";
+import { ProtectedRoute } from "./routes/ProtectedRoutes";
 
 
 const queryClient = new QueryClient();
@@ -77,6 +83,60 @@ const App = () => (
                 element={
                   <ProtectedRoute>
                     <AdminDashboard />
+                  </ProtectedRoute>
+                }
+              />
+
+              <Route
+                path="/admin/users"
+                element={
+                  <ProtectedRoute>
+                    <AdminUsers />
+                  </ProtectedRoute>
+                }
+              />
+
+              <Route
+                path="/admin/rules"
+                element={
+                  <ProtectedRoute>
+                    <AdminRules />
+                  </ProtectedRoute>
+                }
+              />
+
+              <Route
+                path="/admin/reports"
+                element={
+                  <ProtectedRoute>
+                    <AdminReports />
+                  </ProtectedRoute>
+                }
+              />
+
+              <Route
+                path="/admin/settings"
+                element={
+                  <ProtectedRoute>
+                    <AdminSettings />
+                  </ProtectedRoute>
+                }
+              />
+
+              <Route
+                path="/settings"
+                element={
+                  <ProtectedRoute>
+                    <Settings />
+                  </ProtectedRoute>
+                }
+              />
+
+              <Route
+                path="/quarantine"
+                element={
+                  <ProtectedRoute>
+                    <Quarantine />
                   </ProtectedRoute>
                 }
               />
