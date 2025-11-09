@@ -1,8 +1,10 @@
 import type { ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
 import { LayoutDashboard, Shield, User, LogOut, Home, Mail, Settings, ChartBar } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useAuth } from "../context/AuthContext";
+import api from "../lib/api";
 
 interface DashboardLayoutProps {
   children: ReactNode;
@@ -11,7 +13,33 @@ interface DashboardLayoutProps {
 
 export const DashboardLayout = ({ children, type }: DashboardLayoutProps) => {
   const { user } = useAuth();
-  
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const checkAdmin = async () => {
+      try {
+        const response = await api.get("/api/auth/admin/check/");
+        // Explicitly check for true value, not just truthy
+        const adminStatus = response.data?.is_admin === true;
+        setIsAdmin(adminStatus);
+      } catch (err) {
+        // On error, definitely not admin
+        setIsAdmin(false);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    // Only check if user is authenticated
+    if (user) {
+      checkAdmin();
+    } else {
+      setLoading(false);
+      setIsAdmin(false);
+    }
+  }, [user]);
+
   return (
     <div className="min-h-screen bg-background flex">
       {/* Sidebar */}
@@ -39,8 +67,25 @@ export const DashboardLayout = ({ children, type }: DashboardLayoutProps) => {
               <span>Dashboard</span>
             </NavLink>
             
+            {/* Admin Dashboard - Only visible to admins */}
+            {!loading && isAdmin && (
+              <NavLink
+                to="/admin"
+                className={({ isActive }) =>
+                  cn(
+                    "flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200",
+                    isActive
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  )
+                }
+              >
+                <LayoutDashboard className="h-5 w-5" />
+                <span>Admin Dashboard</span>
+              </NavLink>
+            )}
             <NavLink
-              to="/admin"
+              to="/quarantine"
               className={({ isActive }) =>
                 cn(
                   "flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200",
@@ -49,13 +94,6 @@ export const DashboardLayout = ({ children, type }: DashboardLayoutProps) => {
                     : "text-muted-foreground hover:bg-muted hover:text-foreground"
                 )
               }
-            >
-              <LayoutDashboard className="h-5 w-5" />
-              <span>Admin Dashboard</span>
-            </NavLink>
-            <NavLink
-              to="/dashboard#quarantine"
-              className="flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200 text-muted-foreground hover:bg-muted hover:text-foreground"
             >
               <Mail className="h-5 w-5" />
               <span>Quarantine</span>

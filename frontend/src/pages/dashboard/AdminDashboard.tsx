@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { DashboardLayout } from "../../components/DashboardLayout";
 import { StatCard } from "../../components/StatCard";
 import { Users, UserCheck, Shield, TrendingUp, Settings, Database } from "lucide-react";
@@ -12,15 +13,72 @@ import {
   TableRow,
 } from "../../components/ui/table";
 import { Badge } from "../../components/ui/badge";
+import api from "../../lib/api";
+import { useNavigate } from "react-router-dom";
 
-const recentUsers = [
-  { id: "1", name: "John Doe", email: "john@example.com", status: "active", joined: "2025-01-10" },
-  { id: "2", name: "Jane Smith", email: "jane@example.com", status: "active", joined: "2025-01-12" },
-  { id: "3", name: "Bob Wilson", email: "bob@example.com", status: "inactive", joined: "2025-01-14" },
-  { id: "4", name: "Alice Brown", email: "alice@example.com", status: "active", joined: "2025-01-15" },
-];
+interface AdminDashboardData {
+  total_users: number;
+  total_users_change: string;
+  active_users: number;
+  active_users_pct: string;
+  emails_quarantined: number;
+  emails_quarantined_change: string;
+  system_success_rate: string;
+  system_success_rate_change: string;
+}
 
 const AdminDashboard = () => {
+  const [data, setData] = useState<AdminDashboardData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        const response = await api.get("/api/dashboard/admin/summary/");
+        setData(response.data);
+        setError(null);
+      } catch (err: any) {
+        if (err.response?.status === 403) {
+          setError("Admin access required");
+          navigate("/dashboard");
+        } else {
+          setError(err.response?.data?.error || "Failed to load admin dashboard");
+        }
+        console.error("Admin dashboard error:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+    // Refresh every 30 seconds
+    const interval = setInterval(fetchData, 30000);
+    return () => clearInterval(interval);
+  }, [navigate]);
+
+  if (loading) {
+    return (
+      <DashboardLayout type="admin">
+        <div className="p-8 flex items-center justify-center min-h-[400px]">
+          <div className="text-muted-foreground">Loading admin dashboard...</div>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  if (error) {
+    return (
+      <DashboardLayout type="admin">
+        <div className="p-8">
+          <div className="text-destructive">Error: {error}</div>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
   return (
     <DashboardLayout type="admin">
       <div className="p-8 space-y-8">
@@ -32,7 +90,10 @@ const AdminDashboard = () => {
               Manage your antispam system and monitor performance
             </p>
           </div>
-          <Button className="bg-accent hover:bg-accent/90">
+          <Button 
+            className="bg-accent hover:bg-accent/90"
+            onClick={() => navigate('/admin/settings')}
+          >
             <Settings className="h-4 w-4 mr-2" />
             System Settings
           </Button>
@@ -42,29 +103,29 @@ const AdminDashboard = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           <StatCard
             title="Total Users"
-            value="12,847"
-            change="+245 this week"
+            value={data?.total_users?.toLocaleString() || "0"}
+            change={data?.total_users_change || "No data"}
             changeType="positive"
             icon={Users}
           />
           <StatCard
             title="Active Users"
-            value="9,423"
-            change="73% active rate"
+            value={data?.active_users?.toLocaleString() || "0"}
+            change={data?.active_users_pct || "0% active rate"}
             changeType="positive"
             icon={UserCheck}
           />
           <StatCard
             title="Emails Quarantined"
-            value="1.2M"
-            change="+18% from last month"
+            value={data?.emails_quarantined?.toLocaleString() || "0"}
+            change={data?.emails_quarantined_change || "No data"}
             changeType="positive"
             icon={Shield}
           />
           <StatCard
             title="System Success Rate"
-            value="97.8%"
-            change="+1.2% improvement"
+            value={data?.system_success_rate || "0%"}
+            change={data?.system_success_rate_change || "No change"}
             changeType="positive"
             icon={TrendingUp}
           />
@@ -82,7 +143,11 @@ const AdminDashboard = () => {
             <p className="text-sm text-muted-foreground mb-4">
               Manage user accounts, permissions, and access control
             </p>
-            <Button variant="outline" className="w-full">
+            <Button 
+              variant="outline" 
+              className="w-full"
+              onClick={() => navigate('/admin/users')}
+            >
               Manage Users
             </Button>
           </Card>
@@ -97,7 +162,11 @@ const AdminDashboard = () => {
             <p className="text-sm text-muted-foreground mb-4">
               Configure spam detection rules and threat thresholds
             </p>
-            <Button variant="outline" className="w-full">
+            <Button 
+              variant="outline" 
+              className="w-full"
+              onClick={() => navigate('/admin/rules')}
+            >
               Configure Rules
             </Button>
           </Card>
@@ -112,48 +181,23 @@ const AdminDashboard = () => {
             <p className="text-sm text-muted-foreground mb-4">
               View detailed reports and analytics on system performance
             </p>
-            <Button variant="outline" className="w-full">
+            <Button 
+              variant="outline" 
+              className="w-full"
+              onClick={() => navigate('/admin/reports')}
+            >
               View Reports
             </Button>
           </Card>
         </div>
 
-        {/* Recent Users Table */}
+        {/* Recent Users Table - Placeholder for future implementation */}
         <div className="bg-card rounded-xl border border-border overflow-hidden animate-slide-up">
           <div className="p-6 border-b border-border">
             <h2 className="text-lg font-semibold">Recent Users</h2>
           </div>
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Joined</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {recentUsers.map((user) => (
-                  <TableRow key={user.id}>
-                    <TableCell className="font-medium">{user.name}</TableCell>
-                    <TableCell>{user.email}</TableCell>
-                    <TableCell>
-                      <Badge variant={user.status === "active" ? "default" : "secondary"}>
-                        {user.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">{user.joined}</TableCell>
-                    <TableCell className="text-right">
-                      <Button size="sm" variant="ghost">
-                        Manage
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+          <div className="p-8 text-center text-muted-foreground">
+            User management feature coming soon
           </div>
         </div>
       </div>

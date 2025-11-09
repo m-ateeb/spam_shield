@@ -1,83 +1,98 @@
 import { createContext, useContext, useEffect, useState } from "react";
-import { supabase } from "@/lib/supabaseClient";
-import type { Session, User, AuthChangeEvent } from "@supabase/supabase-js";
+import api from "@/lib/api";
 import { syncTokenToExtension, clearExtensionAuth } from "@/lib/extensionAuth";
+
+interface User {
+  id: number;
+  email: string;
+  username: string;
+}
 
 interface AuthContextType {
   user: User | null;
-  session: Session | null;
   loading: boolean;
-  signInWithOAuth: (provider: "google" | "azure") => Promise<void>;
+  signInWithOAuth: (provider: "google" | "microsoft") => Promise<void>;
   signOut: () => Promise<void>;
-  getJWT: () => string | null;
+  getToken: () => string | null;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
-  session: null,
   loading: true,
   signInWithOAuth: async () => {},
   signOut: async () => {},
-  getJWT: () => null,
+  getToken: () => null,
+  refreshUser: async () => {},
 });
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
-  const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      setUser(data.session?.user ?? null);
-      setLoading(false);
-    });
-
-    // Listen to auth changes
-    const { data: listener } = supabase.auth.onAuthStateChange(
-      async (event: AuthChangeEvent, session: Session | null) => {
-        setSession(session);
-        setUser(session?.user ?? null);
+  const refreshUser = async () => {
+    try {
+      const token = localStorage.getItem("auth_token");
+      if (!token) {
+        setUser(null);
         setLoading(false);
-        
-        // Sync to extension on sign in
-        if (event === 'SIGNED_IN' && session) {
-          await syncTokenToExtension(session.access_token, session.user.email || '');
-        }
-        
-        // Clear extension on sign out
-        if (event === 'SIGNED_OUT') {
-          await clearExtensionAuth();
-        }
+        return;
       }
-    );
 
-    return () => {
-      listener.subscription.unsubscribe();
-    };
+      const response = await api.get("/api/auth/user/");
+      setUser(response.data);
+      
+      // Sync token to extension
+      await syncTokenToExtension(token, response.data.email);
+    } catch (error) {
+      console.error("Failed to refresh user:", error);
+      localStorage.removeItem("auth_token");
+      localStorage.removeItem("user");
+      setUser(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    // Check if user is already logged in
+    const token = localStorage.getItem("auth_token");
+    if (token) {
+      refreshUser();
+    } else {
+      setLoading(false);
+    }
   }, []);
 
-  const signInWithOAuth = async (provider: "google" | "azure") => {
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider,
-      options: { redirectTo: `${window.location.origin}/dashboard` },
-    });
-    if (error) console.error("OAuth error:", error.message);
+  const signInWithOAuth = async (provider: "google" | "microsoft") => {
+    // Redirect to Django allauth OAuth endpoint with frontend redirect
+    const apiUrl = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+    const frontendUrl = window.location.origin;
+    const providerPath = provider === "google" ? "google" : "microsoft";
+    window.location.href = `${apiUrl}/api/auth/${providerPath}/?redirect=${encodeURIComponent(frontendUrl)}`;
   };
 
   const signOut = async () => {
-    await supabase.auth.signOut();
-    setSession(null);
-    setUser(null);
+    try {
+      // Call Django logout endpoint
+      await api.post("/accounts/logout/");
+    } catch (error) {
+      console.error("Logout error:", error);
+    } finally {
+      localStorage.removeItem("auth_token");
+      localStorage.removeItem("user");
+      setUser(null);
+      await clearExtensionAuth();
+    }
   };
 
-  // Function to get JWT for your backend API calls
-  const getJWT = () => session?.access_token ?? null;
+  const getToken = () => {
+    return localStorage.getItem("auth_token");
+  };
 
   return (
     <AuthContext.Provider
-      value={{ user, session, loading, signInWithOAuth, signOut, getJWT }}
+      value={{ user, loading, signInWithOAuth, signOut, getToken, refreshUser }}
     >
       {children}
     </AuthContext.Provider>

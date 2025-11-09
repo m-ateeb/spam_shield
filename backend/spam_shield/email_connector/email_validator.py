@@ -3,7 +3,7 @@ import dkim
 import dns.resolver
 import re
 from dmarc import DMARC
-from email_connector.supabase_client import syslog
+from email_connector.db_utils import syslog
 
 def validate_email_authenticity(raw_email: bytes, sender_domain: str, message_id: str = None):
     """

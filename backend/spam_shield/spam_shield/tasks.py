@@ -3,13 +3,13 @@ import base64
 import requests
 from email_connector.oauth_utils import get_valid_access_token
 from email_connector.email_validator import validate_email_authenticity
-from email_connector.supabase_client import (
-    supabase,
-    decrypt_token,
+from email_connector.db_utils import (
     syslog,
     get_account_by_email,
     upsert_connected_account,
 )
+from email_connector.models import Email, EmailAuthResult, URLAnalysis, ConnectedAccount
+from django.contrib.auth.models import User
 from email_connector.utils import extract_sender, extract_body_html, highlight_urls
 from email_connector.url_reputation import extract_urls_from_html, analyze_url
 from django.conf import settings
@@ -74,13 +74,14 @@ def process_outlook(email, token, account):
 # MODULE 2 & 3 → Email Validation + URL Reputation
 # ===========================
 def save_email(raw_msg, account):
-    """Extract, validate, scan, and store email details in Supabase."""
+    """Extract, validate, scan, and store email details in database."""
     message_id = raw_msg.get("id")
     if not message_id:
         return
 
     # === FETCH FULL RAW EMAIL (for DKIM/SPF) ===
     raw_email = b""
+    from email_connector.db_utils import decrypt_token
     access_token = decrypt_token(account['access_token'])
     
     if account["provider"] == "gmail":
@@ -123,62 +124,74 @@ def save_email(raw_msg, account):
             "Reply-To": raw_msg.get("replyTo", [{}])[0].get("emailAddress", {}).get("address", "") if raw_msg.get("replyTo") else "",
         }
 
-    # === SAVE EMAIL TO SUPABASE (emails table) ===
-    email_row = {
-        "user_id": account["user_id"],
-        "account_id": account["id"],
-        "message_id": message_id,
-        "subject": headers.get("Subject", ""),
-        "sender": sender,
-        "from_header": headers.get("From", ""),
-        "reply_to": headers.get("Reply-To", ""),
-        "return_path": headers.get("Return-Path", ""),
-        "body_html": extract_body_html(raw_msg),
-        "highlighted_body_html": highlight_urls(extract_body_html(raw_msg)),
-        "received_at": raw_msg.get("internalDate") if account["provider"] == "gmail" else raw_msg.get("receivedDateTime"),
-        "spf_result": auth_result["spf_result"],
-        "dkim_result": auth_result["dkim_result"],
-        "dmarc_policy": auth_result["dmarc_policy"],
-        "auth_score": auth_result["auth_score"],
-        "is_suspicious": auth_result["auth_score"] < 60,
-    }
-
-    res = supabase.table("emails").insert(email_row).execute()
-    if not res.data:
-        syslog("email_insert_error", "save_email", {"message_id": message_id})
-        return
-
-    email_id = res.data[0]["id"]
-
-    # === INSERT AUTHENTICATION RESULTS (email_auth_results table) ===
-    supabase.table("email_auth_results").insert(
-        {
-            "email_id": email_id,
-            "spf_status": auth_result["spf_result"],
-            "dkim_status": auth_result["dkim_result"],
-            "dmarc_status": auth_result["dmarc_policy"],
-            "validation_summary": auth_result["validation_summary"],
-        }
-    ).execute()
-
-    # === EXTRACT & ANALYZE EMBEDDED URLs (url_analysis table) ===
+    # === SAVE EMAIL TO DATABASE (emails table) ===
     try:
-        urls = extract_urls_from_html(email_row["body_html"])
-        for url in urls:
-            url_result = analyze_url(url, email_id)  # 🆕 Pass email_id for async polling
-            supabase.table("url_analysis").insert(
-                {
-                    "email_id": email_id,
-                    "url": url,
-                    "source": "body",
-                    "google_safebrowsing": url_result.get("google_safebrowsing"),
-                    "urlhaus_status": url_result.get("urlhaus_status"),
-                    "urlscan_status": url_result.get("urlscan_status"),
-                    "final_verdict": url_result.get("final_verdict"),
-                }
-            ).execute()
+        # Get user and account objects
+        user = User.objects.get(id=int(account["user_id"]))
+        account_obj = ConnectedAccount.objects.get(id=account["id"])
+        
+        # Parse received_at
+        from dateutil.parser import parse
+        received_at_str = raw_msg.get("internalDate") if account["provider"] == "gmail" else raw_msg.get("receivedDateTime")
+        received_at = None
+        if received_at_str:
+            if isinstance(received_at_str, (int, float)):
+                from datetime import datetime
+                received_at = datetime.fromtimestamp(received_at_str / 1000)
+            else:
+                received_at = parse(received_at_str)
+        
+        body_html = extract_body_html(raw_msg)
+        
+        # Create email object
+        email_obj = Email.objects.create(
+            user=user,
+            account=account_obj,
+            message_id=message_id,
+            subject=headers.get("Subject", ""),
+            sender=sender,
+            from_header=headers.get("From", ""),
+            reply_to=headers.get("Reply-To", "") or None,
+            return_path=headers.get("Return-Path", "") or None,
+            body_html=body_html,
+            highlighted_body_html=highlight_urls(body_html),
+            received_at=received_at,
+            spf_result=auth_result["spf_result"],
+            dkim_result=auth_result["dkim_result"],
+            dmarc_policy=auth_result["dmarc_policy"],
+            auth_score=auth_result["auth_score"],
+            is_suspicious=auth_result["auth_score"] < 60,
+        )
+        email_id = email_obj.id
+
+        # === INSERT AUTHENTICATION RESULTS ===
+        EmailAuthResult.objects.create(
+            email=email_obj,
+            spf_status=auth_result["spf_result"],
+            dkim_status=auth_result["dkim_result"],
+            dmarc_status=auth_result["dmarc_policy"],
+            validation_summary=auth_result.get("validation_summary", ""),
+        )
+
+        # === EXTRACT & ANALYZE EMBEDDED URLs ===
+        try:
+            urls = extract_urls_from_html(body_html)
+            for url in urls:
+                url_result = analyze_url(url, email_id)  # Pass email_id for async polling
+                URLAnalysis.objects.create(
+                    email=email_obj,
+                    url=url,
+                    source="body",
+                    google_safebrowsing=url_result.get("google_safebrowsing"),
+                    urlhaus_status=url_result.get("urlhaus_status"),
+                    urlscan_status=url_result.get("urlscan_status"),
+                    final_verdict=url_result.get("final_verdict", "safe"),
+                )
+        except Exception as e:
+            syslog("url_analysis_error", "save_email", {"email_id": email_id, "error": str(e)})
     except Exception as e:
-        syslog("url_analysis_error", "save_email", {"email_id": email_id, "error": str(e)})
+        syslog("email_insert_error", "save_email", {"message_id": message_id, "error": str(e)})
+        return
 
     # === RUN NEXT PIPELINE (Module 4) ===
     run_post_process_pipeline.delay(email_id)

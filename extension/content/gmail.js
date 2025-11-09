@@ -24,29 +24,70 @@ let authPopupShown = false; // Prevent infinite auth popups
 // ============================================
 function init() {
   console.log('🚀 Initializing Gmail spam detection...');
+  console.log('✅ Spam Shield extension is active on Gmail');
   
   // Monitor for email view changes
   observeEmailView();
   
   // Add spam indicators to inbox list
   observeInboxList();
+  
+  // Log initialization success
+  console.log('✅ Gmail spam detection initialized successfully');
 }
 
 // ============================================
 // EMAIL VIEW MONITORING
 // ============================================
 function observeEmailView() {
+  let lastUrl = window.location.href;
+  let debounceTimer = null;
+  
   const observer = new MutationObserver((mutations) => {
-    const emailView = document.querySelector(GMAIL_SELECTORS.EMAIL_VIEW);
-    if (emailView) {
-      handleEmailOpened();
+    // Only check if we're actually on an email view page (not inbox list)
+    const currentUrl = window.location.href;
+    const isEmailView = currentUrl.includes('/mail/u/') && (currentUrl.includes('#inbox/') || currentUrl.includes('#search/'));
+    
+    // Skip if URL hasn't changed (just DOM mutations from other sources)
+    if (currentUrl === lastUrl && !isEmailView) {
+      return;
     }
+    
+    // Check if we're viewing an actual email (has subject and sender)
+    const emailSubject = document.querySelector(GMAIL_SELECTORS.EMAIL_SUBJECT);
+    const emailSender = document.querySelector(GMAIL_SELECTORS.EMAIL_SENDER);
+    const emailBody = document.querySelector(GMAIL_SELECTORS.EMAIL_BODY);
+    
+    // Only proceed if we have all email elements (actual email view, not inbox list)
+    if (!emailSubject || !emailSender || !emailBody) {
+      lastUrl = currentUrl;
+      return;
+    }
+    
+    // Debounce to avoid multiple triggers on rapid navigation
+    if (debounceTimer) {
+      clearTimeout(debounceTimer);
+    }
+    
+    debounceTimer = setTimeout(() => {
+      lastUrl = currentUrl;
+      handleEmailOpened();
+    }, 500); // Wait 500ms after navigation stops
   });
 
   observer.observe(document.body, {
     childList: true,
-    subtree: true
+    subtree: true,
+    attributes: false // Don't trigger on attribute changes
   });
+  
+  // Also listen for URL changes (Gmail uses pushState for navigation)
+  const originalPushState = history.pushState;
+  history.pushState = function(...args) {
+    originalPushState.apply(history, args);
+    // Reset lastUrl to trigger check on next mutation
+    lastUrl = '';
+  };
 }
 
 async function handleEmailOpened() {
@@ -70,10 +111,28 @@ async function handleEmailOpened() {
     showLoadingIndicator();
 
     // Send to background for analysis
-    const response = await chrome.runtime.sendMessage({
-      action: 'ANALYZE_EMAIL',
-      data: emailData
-    });
+    let response;
+    try {
+      response = await chrome.runtime.sendMessage({
+        action: 'ANALYZE_EMAIL',
+        data: emailData
+      });
+    } catch (error) {
+      // Handle extension context invalidation
+      if (error.message && error.message.includes('Extension context invalidated')) {
+        console.log('🔄 Extension was reloaded. Please refresh this page (F5)');
+        showExtensionReloadPopup();
+        removeLoadingIndicator();
+        return;
+      }
+      throw error;
+    }
+
+    if (!response) {
+      console.error('❌ No response from extension');
+      removeLoadingIndicator();
+      return;
+    }
 
     if (response.error) {
       console.error('❌ Analysis error:', response.error);
@@ -82,6 +141,8 @@ async function handleEmailOpened() {
       // Show user-friendly error popup
       if (response.error === 'Not authenticated') {
         showAuthRequiredPopup();
+      } else if (response.error.includes('404')) {
+        console.error('❌ API endpoint not found. Please restart the Django server.');
       }
       return;
     }
@@ -97,13 +158,16 @@ async function handleEmailOpened() {
     removeLoadingIndicator();
     
     // Handle extension context invalidation (extension was reloaded)
-    if (error.message && error.message.includes('Extension context invalidated')) {
-      console.log('🔄 Extension was reloaded. Please refresh this page (F5)');
+    if (error.message && (error.message.includes('Extension context invalidated') || 
+        error.message.includes('message port closed') ||
+        error.message.includes('Receiving end does not exist'))) {
+      console.log('🔄 Extension was reloaded. Please refresh this page (F5) to re-enable spam protection.');
       showExtensionReloadPopup();
       return;
     }
     
     console.error('❌ Error handling email:', error);
+    // Don't show error popup for context invalidation - user will see reload message
   }
 }
 
@@ -181,8 +245,11 @@ function displaySpamIndicator(result) {
   const indicator = createIndicatorElement(result);
   toolbar.insertBefore(indicator, toolbar.firstChild);
   
-  // Show prominent popup notification
-  showEmailAnalysisPopup(result);
+  // Only show prominent popup notification for threats (phishing/suspicious), not for safe emails
+  const { verdict, action } = result;
+  if (verdict === 'phishing' || verdict === 'suspicious' || action === 'delete' || action === 'quarantine') {
+    showEmailAnalysisPopup(result);
+  }
 }
 
 function createIndicatorElement(result) {
@@ -522,12 +589,40 @@ async function addInboxIndicators() {
 // ============================================
 // START
 // ============================================
+// Check if we're on a Gmail page
+function isGmailPage() {
+  return window.location.hostname === 'mail.google.com' && 
+         (window.location.pathname.includes('/mail/') || window.location.pathname === '/');
+}
+
 // Wait for Gmail to fully load
-setTimeout(init, 2000);
+if (isGmailPage()) {
+  // Try to initialize immediately
+  if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    setTimeout(init, 1000);
+  } else {
+    window.addEventListener('load', () => {
+      setTimeout(init, 1000);
+    });
+  }
+  
+  // Also try after a delay in case Gmail loads slowly
+  setTimeout(() => {
+    if (!currentEmailId) {
+      init();
+    }
+  }, 3000);
+}
 
 // Re-initialize on navigation
 window.addEventListener('hashchange', () => {
   currentEmailId = null;
-  handleEmailOpened();
+  setTimeout(handleEmailOpened, 500);
+});
+
+// Re-initialize on popstate (back/forward)
+window.addEventListener('popstate', () => {
+  currentEmailId = null;
+  setTimeout(handleEmailOpened, 500);
 });
 

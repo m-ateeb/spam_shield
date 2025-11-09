@@ -22,23 +22,34 @@ Create a .env file in the project root with the following values:
     DEBUG=True
     ALLOWED_HOSTS=*
 
-    # Supabase
+    # Supabase (Database only - not for authentication)
     SUPABASE_URL=https://xyzcompany.supabase.co
-    SUPABASE_KEY=your-service-role-key
-    SUPABASE_JWT_SECRET=your-supabase-jwt-secret
+    SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+    
+    # Frontend URL (for OAuth redirects)
+    FRONTEND_URL=http://localhost:5173
 
     # Database (PostgreSQL)
-    DATABASE_URL=postgresql://username:password@host:port/database
+    # For Supabase (cloud):
+    # DATABASE_URL=postgresql://postgres.[PROJECT_REF]:[PASSWORD]@aws-0-[REGION].pooler.supabase.com:6543/postgres
+    # For Local PostgreSQL:
+    DATABASE_URL=postgresql://username:password@localhost:5432/database_name
+    # Example: DATABASE_URL=postgresql://postgres:mysecretpassword@localhost:5432/spam_shield_db
 
     # Redis (for Celery)
     REDIS_URL=rediss://default:<your-upstash-redis-url>
 
-    # OAuth Credentials
+    # OAuth Credentials (for user authentication via django-allauth)
     GOOGLE_CLIENT_ID=your-google-client-id
     GOOGLE_CLIENT_SECRET=your-google-client-secret
+    GOOGLE_PROJECT_ID=your-google-project-id
     MICROSOFT_CLIENT_ID=your-microsoft-client-id
     MICROSOFT_CLIENT_SECRET=your-microsoft-client-secret
-    REDIRECT_URI=https://your-frontend-url/oauth/callback
+    
+    # IMPORTANT: Configure these redirect URIs in your OAuth provider consoles:
+    # Google: http://localhost:8000/accounts/google/login/callback/
+    # Microsoft: http://localhost:8000/accounts/microsoft/login/callback/
+    # See OAUTH_SETUP.md for detailed instructions
 
     # Encryption
     FERNET_KEY=your-generated-fernet-key
@@ -57,6 +68,15 @@ Create a .env file in the project root with the following values:
 
 5️⃣ Run Database Migrations
     python manage.py migrate
+    
+    # Create a Site object for django-allauth (required)
+    python manage.py shell
+    >>> from django.contrib.sites.models import Site
+    >>> site = Site.objects.get(id=1)
+    >>> site.domain = 'localhost:8000'  # or your domain
+    >>> site.name = 'SpamShield'
+    >>> site.save()
+    >>> exit()
 
 6️⃣ Start the Django Development Server
     python manage.py runserver
@@ -92,11 +112,18 @@ All results are stored in Supabase tables:
     quarantine
 
 🧾 Available API Endpoints (Key Routes)
-    /auth/verify/	POST	Verifies JWT token
-    /oauth/google/login/	GET	Redirect to Google login
+    # User Authentication (django-allauth)
+    /accounts/google/login/	GET	Redirect to Google OAuth login
+    /accounts/microsoft/login/	GET	Redirect to Microsoft OAuth login
+    /api/auth/token/	GET	Get API token for authenticated user
+    /api/auth/user/	GET	Get current user information
+    /api/auth/callback/	GET	OAuth callback handler (redirects to frontend)
+    
+    # Email Account Connection
+    /oauth/google/	GET	Redirect to Google OAuth (for Gmail connection)
     /oauth/google/callback/	GET	Handles Google OAuth callback
-    /oauth/outlook/login/	GET	Redirect to Microsoft login
-    /oauth/outlook/callback/	GET	Handles Outlook OAuth callback
+    /oauth/microsoft/	GET	Redirect to Microsoft OAuth (for Outlook connection)
+    /oauth/microsoft/callback/	GET	Handles Microsoft OAuth callback
     /webhook/	POST	Receives new email notifications
     /dashboard/stats/	GET	Returns summary stats for user dashboard
     /dashboard/quarantine/	GET	Fetch quarantined emails
@@ -104,7 +131,9 @@ All results are stored in Supabase tables:
 
 🧪 Testing the Setup
     Once the backend and Celery are running:
-    Go to /oauth/google/login/ or /oauth/outlook/login/ to connect your email.
+    1. First, authenticate as a user by visiting /accounts/google/login/ or /accounts/microsoft/login/
+    2. After authentication, you'll be redirected to the frontend with an API token
+    3. Use the API token to connect your email accounts via /oauth/google/ or /oauth/microsoft/
 
     Send a test email to your connected inbox.
     Backend will:
@@ -142,17 +171,19 @@ Windows PowerShell:
 2️⃣ Environment variables
 
 The frontend uses Vite. Environment variables should be prefixed with `VITE_` to be available in client code.
-Create a `.env` file in `frontend/` with the values below (example keys — do NOT commit secrets):
+Create a `.env` file in `frontend/` with the values below:
 
-    VITE_SUPABASE_URL=https://xyzcompany.supabase.co
-    VITE_SUPABASE_ANON_KEY=your-supabase-anon-key
+    # Backend API URL
     VITE_API_URL=http://127.0.0.1:8000
+
+    # Extension redirect (optional - only if using browser extension)
     VITE_EXTENSION_REDIRECT_URI=chrome-extension://<extension-id>/oauth/callback
 
-Notes:
-- Use the backend `SUPABASE_URL` and a client-safe anon key for the frontend.
-- `VITE_API_URL` should point to your running backend during development.
-- If testing the extension, set `VITE_EXTENSION_REDIRECT_URI` to the extension's redirect URI or the dev extension id once loaded.
+**Important Notes:**
+- `VITE_API_URL` should point to your running backend during development
+- **Remove any `VITE_SUPABASE_URL` or `VITE_SUPABASE_ANON_KEY`** - Supabase is no longer used for authentication
+- Authentication is now handled by Django allauth with email/password and OAuth (Google/Microsoft)
+- If testing the extension, set `VITE_EXTENSION_REDIRECT_URI` to the extension's redirect URI
 
 3️⃣ Run the dev server
 

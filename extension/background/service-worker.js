@@ -81,6 +81,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       handleGetStats(sendResponse);
       return true;
 
+    case 'GET_ACCOUNTS':
+      handleGetAccounts(sendResponse);
+      return true;
+
     case 'LOGOUT':
       handleLogout(sendResponse);
       return true;
@@ -102,7 +106,7 @@ async function handleEmailAnalysis(emailData, sendResponse) {
     }
 
     // Send email data to backend for analysis
-    const response = await fetch(`${CONFIG.API_BASE_URL}/api/extension/analyze`, {
+    const response = await fetch(`${CONFIG.API_BASE_URL}/api/extension/analyze/`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -119,6 +123,9 @@ async function handleEmailAnalysis(emailData, sendResponse) {
     });
 
     if (!response.ok) {
+      if (response.status === 404) {
+        throw new Error(`API endpoint not found (404). Please ensure the Django server is running and has been restarted after recent changes.`);
+      }
       throw new Error(`API error: ${response.status}`);
     }
 
@@ -157,17 +164,51 @@ async function handleSetAuth(data, sendResponse) {
 async function handleGetAuthStatus(sendResponse) {
   try {
     const token = await getAuthToken();
-    const userData = await chrome.storage.local.get(CONFIG.STORAGE_KEYS.USER_DATA);
     
-    console.log('Auth status check:', { 
-      hasToken: !!token, 
-      user: userData[CONFIG.STORAGE_KEYS.USER_DATA] 
-    });
+    // If no token, check if we can verify with backend
+    if (!token) {
+      sendResponse({
+        authenticated: false,
+        user: null
+      });
+      return;
+    }
     
-    sendResponse({
-      authenticated: !!token,
-      user: userData[CONFIG.STORAGE_KEYS.USER_DATA] || null
-    });
+    // Verify token is still valid by checking with backend
+    try {
+      const response = await fetch(`${CONFIG.API_BASE_URL}/api/auth/user/`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (response.ok) {
+        const userData = await response.json();
+        // Update stored user data
+        await chrome.storage.local.set({
+          [CONFIG.STORAGE_KEYS.USER_DATA]: userData
+        });
+        
+        sendResponse({
+          authenticated: true,
+          user: userData
+        });
+      } else {
+        // Token invalid, clear it
+        await chrome.storage.local.remove([CONFIG.STORAGE_KEYS.AUTH_TOKEN, CONFIG.STORAGE_KEYS.USER_DATA]);
+        sendResponse({
+          authenticated: false,
+          user: null
+        });
+      }
+    } catch (error) {
+      // Network error - assume token is still valid if we have it
+      const userData = await chrome.storage.local.get(CONFIG.STORAGE_KEYS.USER_DATA);
+      sendResponse({
+        authenticated: !!token,
+        user: userData[CONFIG.STORAGE_KEYS.USER_DATA] || null
+      });
+    }
   } catch (error) {
     console.error('Auth status error:', error);
     sendResponse({ authenticated: false, error: error.message });
@@ -184,17 +225,25 @@ async function handleConnectGmail(sendResponse) {
       return;
     }
 
-    // Trigger OAuth flow
-    const oauthUrl = `${CONFIG.API_BASE_URL}/oauth/google/`;
+    // Trigger OAuth flow - pass token as query parameter for extension authentication
+    const oauthUrl = `${CONFIG.API_BASE_URL}/oauth/google/?token=${encodeURIComponent(token)}`;
     chrome.tabs.create({ url: oauthUrl }, (tab) => {
       // Listen for OAuth completion
-      chrome.tabs.onUpdated.addListener(function listener(tabId, info) {
-        if (tabId === tab.id && info.url && info.url.includes('oauth_success=gmail')) {
-          chrome.tabs.remove(tabId);
-          chrome.tabs.onUpdated.removeListener(listener);
-          sendResponse({ success: true, provider: 'gmail' });
+      let listener = (tabId, changeInfo) => {
+        if (tabId === tab.id && changeInfo.url) {
+          if (changeInfo.url.includes('oauth_success=gmail') || changeInfo.url.includes('user?oauth_success=gmail')) {
+            chrome.tabs.remove(tabId);
+            chrome.tabs.onUpdated.removeListener(listener);
+            // Refresh connected accounts
+            refreshConnectedAccounts();
+            sendResponse({ success: true, provider: 'gmail' });
+          } else if (changeInfo.url.includes('oauth_error')) {
+            chrome.tabs.onUpdated.removeListener(listener);
+            sendResponse({ error: 'OAuth connection failed' });
+          }
         }
-      });
+      };
+      chrome.tabs.onUpdated.addListener(listener);
     });
   } catch (error) {
     sendResponse({ error: error.message });
@@ -210,16 +259,81 @@ async function handleConnectOutlook(sendResponse) {
       return;
     }
 
-    const oauthUrl = `${CONFIG.API_BASE_URL}/oauth/microsoft/`;
+    // Trigger OAuth flow - pass token as query parameter for extension authentication
+    const oauthUrl = `${CONFIG.API_BASE_URL}/oauth/microsoft/?token=${encodeURIComponent(token)}`;
     chrome.tabs.create({ url: oauthUrl }, (tab) => {
-      chrome.tabs.onUpdated.addListener(function listener(tabId, info) {
-        if (tabId === tab.id && info.url && info.url.includes('oauth_success=outlook')) {
-          chrome.tabs.remove(tabId);
-          chrome.tabs.onUpdated.removeListener(listener);
-          sendResponse({ success: true, provider: 'outlook' });
+      let listener = (tabId, changeInfo) => {
+        if (tabId === tab.id && changeInfo.url) {
+          if (changeInfo.url.includes('oauth_success=outlook') || changeInfo.url.includes('user?oauth_success=outlook')) {
+            chrome.tabs.remove(tabId);
+            chrome.tabs.onUpdated.removeListener(listener);
+            // Refresh connected accounts
+            refreshConnectedAccounts();
+            sendResponse({ success: true, provider: 'outlook' });
+          } else if (changeInfo.url.includes('oauth_error')) {
+            chrome.tabs.onUpdated.removeListener(listener);
+            sendResponse({ error: 'OAuth connection failed' });
+          }
         }
-      });
+      };
+      chrome.tabs.onUpdated.addListener(listener);
     });
+  } catch (error) {
+    sendResponse({ error: error.message });
+  }
+}
+
+// Helper function to refresh connected accounts
+async function refreshConnectedAccounts() {
+  try {
+    const token = await getAuthToken();
+    if (!token) return;
+
+    const response = await fetch(`${CONFIG.API_BASE_URL}/api/accounts/`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      await chrome.storage.local.set({
+        [CONFIG.STORAGE_KEYS.CONNECTED_ACCOUNTS]: data.accounts || []
+      });
+      return data.accounts || [];
+    }
+  } catch (error) {
+    console.error('Failed to refresh accounts:', error);
+  }
+  return [];
+}
+
+async function handleGetAccounts(sendResponse) {
+  try {
+    const token = await getAuthToken();
+    if (!token) {
+      sendResponse({ error: 'Not authenticated' });
+      return;
+    }
+
+    const response = await fetch(`${CONFIG.API_BASE_URL}/api/accounts/`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        await chrome.storage.local.remove([CONFIG.STORAGE_KEYS.AUTH_TOKEN, CONFIG.STORAGE_KEYS.USER_DATA]);
+      }
+      throw new Error('Failed to fetch accounts');
+    }
+
+    const data = await response.json();
+    const accounts = data.accounts || [];
+    
+    // Update local storage
+    await chrome.storage.local.set({
+      [CONFIG.STORAGE_KEYS.CONNECTED_ACCOUNTS]: accounts
+    });
+    
+    sendResponse({ success: true, accounts });
   } catch (error) {
     sendResponse({ error: error.message });
   }
@@ -313,22 +427,19 @@ async function handleGetStats(sendResponse) {
       return;
     }
 
-    const accounts = await chrome.storage.local.get(CONFIG.STORAGE_KEYS.CONNECTED_ACCOUNTS);
-    const accountList = accounts[CONFIG.STORAGE_KEYS.CONNECTED_ACCOUNTS] || [];
-    
-    if (accountList.length === 0) {
-      sendResponse({ success: true, stats: null });
-      return;
-    }
-
-    // Get stats for first connected account
-    const email = accountList[0].email_address;
+    // Get dashboard summary (no email parameter needed - returns user's overall stats)
     const response = await fetch(
-      `${CONFIG.API_BASE_URL}/api/dashboard/summary/?email=${encodeURIComponent(email)}`,
+      `${CONFIG.API_BASE_URL}/api/dashboard/summary/`,
       { headers: { 'Authorization': `Bearer ${token}` } }
     );
 
-    if (!response.ok) throw new Error('Failed to fetch stats');
+    if (!response.ok) {
+      if (response.status === 401) {
+        // Token invalid, clear it
+        await chrome.storage.local.remove([CONFIG.STORAGE_KEYS.AUTH_TOKEN, CONFIG.STORAGE_KEYS.USER_DATA]);
+      }
+      throw new Error('Failed to fetch stats');
+    }
 
     const stats = await response.json();
     sendResponse({ success: true, stats });

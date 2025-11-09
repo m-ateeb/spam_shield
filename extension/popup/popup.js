@@ -65,9 +65,18 @@ async function loadPopupData() {
     // Check auth status
     const authResponse = await chrome.runtime.sendMessage({ action: 'GET_AUTH_STATUS' });
     
-    if (!authResponse.authenticated) {
+    if (!authResponse || !authResponse.authenticated) {
       showNotAuthView();
       return;
+    }
+
+    // Store user info for display
+    if (authResponse.user) {
+      // Update UI with user email if needed
+      const userEmailEl = document.getElementById('userEmail');
+      if (userEmailEl) {
+        userEmailEl.textContent = authResponse.user.email || 'User';
+      }
     }
 
     // Load stats
@@ -80,6 +89,7 @@ async function loadPopupData() {
   } catch (error) {
     console.error('Error loading popup data:', error);
     showError('Failed to load data');
+    showNotAuthView();
   }
 }
 
@@ -89,24 +99,55 @@ async function loadStats() {
     
     if (response.error) {
       console.error('Stats error:', response.error);
+      // Show zeros if error
+      if (elements.totalEmails) elements.totalEmails.textContent = '0';
+      if (elements.spamBlocked) elements.spamBlocked.textContent = '0';
+      if (elements.quarantined) elements.quarantined.textContent = '0';
       return;
     }
 
     if (response.stats) {
-      elements.totalEmails.textContent = response.stats.total_emails || 0;
-      elements.spamBlocked.textContent = response.stats.suspicious_emails || 0;
-      elements.quarantined.textContent = response.stats.quarantined_emails || 0;
+      if (elements.totalEmails) {
+        elements.totalEmails.textContent = (response.stats.total_emails || 0).toLocaleString();
+      }
+      if (elements.spamBlocked) {
+        elements.spamBlocked.textContent = (response.stats.spam_blocked || response.stats.suspicious_emails || 0).toLocaleString();
+      }
+      if (elements.quarantined) {
+        elements.quarantined.textContent = (response.stats.quarantined_emails || 0).toLocaleString();
+      }
+    } else {
+      // No stats available
+      if (elements.totalEmails) elements.totalEmails.textContent = '0';
+      if (elements.spamBlocked) elements.spamBlocked.textContent = '0';
+      if (elements.quarantined) elements.quarantined.textContent = '0';
     }
   } catch (error) {
     console.error('Error loading stats:', error);
+    // Show zeros on error
+    if (elements.totalEmails) elements.totalEmails.textContent = '0';
+    if (elements.spamBlocked) elements.spamBlocked.textContent = '0';
+    if (elements.quarantined) elements.quarantined.textContent = '0';
   }
 }
 
 async function loadAccounts() {
   try {
-    // Get from local storage (synced from backend)
-    const result = await chrome.storage.local.get('spam_shield_accounts');
-    const accounts = result.spam_shield_accounts || [];
+    // Fetch accounts from backend API
+    const response = await chrome.runtime.sendMessage({ action: 'GET_ACCOUNTS' });
+    
+    if (response.error) {
+      console.error('Accounts error:', response.error);
+      elements.accountsList.innerHTML = `
+        <div class="empty-state">
+          <p>No email accounts connected</p>
+          <p class="hint">Connect Gmail or Outlook to start</p>
+        </div>
+      `;
+      return;
+    }
+
+    const accounts = response.accounts || [];
 
     if (accounts.length === 0) {
       elements.accountsList.innerHTML = `
@@ -166,7 +207,21 @@ function showError(message) {
 // ============================================
 // EVENT HANDLERS
 // ============================================
-function handleLogin() {
+async function handleLogin() {
+  // Check if user is already authenticated
+  try {
+    const authResponse = await chrome.runtime.sendMessage({ action: 'GET_AUTH_STATUS' });
+    if (authResponse && authResponse.authenticated) {
+      // Already logged in - just refresh the popup
+      await loadPopupData();
+      return;
+    }
+  } catch (error) {
+    // If check fails, proceed with login
+    console.log('Auth check failed, proceeding with login:', error);
+  }
+  
+  // Not authenticated - open login page
   chrome.tabs.create({ url: `${CONFIG.FRONTEND_URL}/login` });
   window.close();
 }
@@ -223,28 +278,22 @@ async function handleConnectOutlook() {
 
 async function handleViewQuarantine() {
   try {
-    const response = await chrome.runtime.sendMessage({ action: 'GET_QUARANTINE_LIST' });
-    
-    if (response.error) {
-      showError(response.error);
-      return;
-    }
-
-    // Open quarantine view in dashboard
-    chrome.tabs.create({ url: `${CONFIG.FRONTEND_URL}/user#quarantine` });
+    // Open quarantine page directly
+    chrome.tabs.create({ url: `${CONFIG.FRONTEND_URL}/quarantine` });
     window.close();
   } catch (error) {
-    showError('Failed to load quarantine');
+    showError('Failed to open quarantine');
   }
 }
 
 function handleOpenDashboard() {
-  chrome.tabs.create({ url: `${CONFIG.FRONTEND_URL}/user` });
+  chrome.tabs.create({ url: `${CONFIG.FRONTEND_URL}/dashboard` });
   window.close();
 }
 
 function handleOpenSettings() {
-  chrome.runtime.openOptionsPage();
+  chrome.tabs.create({ url: `${CONFIG.FRONTEND_URL}/settings` });
+  window.close();
 }
 
 // ============================================

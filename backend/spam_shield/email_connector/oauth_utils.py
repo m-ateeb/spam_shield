@@ -1,7 +1,8 @@
 import requests
 from datetime import datetime, timezone, timedelta
 from django.conf import settings
-from email_connector.supabase_client import decrypt_token, encrypt_token, supabase, syslog
+from email_connector.db_utils import decrypt_token, encrypt_token, syslog
+from email_connector.models import ConnectedAccount, Email
 
 
 def refresh_google_access_token(refresh_token: str) -> dict:
@@ -49,27 +50,46 @@ def refresh_microsoft_access_token(refresh_token: str) -> dict:
         return None
 
 
-def get_valid_access_token(account: dict) -> str:
+def get_valid_access_token(account) -> str:
     """
     Get valid access token, refreshing if needed.
+    Accepts ConnectedAccount model instance or dict for backward compatibility.
     Returns decrypted access token or None if refresh fails.
     """
-    token_expiry = account.get("token_expiry")
+    # Handle both model instance and dict
+    if hasattr(account, 'token_expiry'):
+        token_expiry = account.token_expiry
+        access_token = account.access_token
+        refresh_token = account.refresh_token
+        provider = account.provider
+        account_id = account.id
+    else:
+        # Dict format (backward compatibility)
+        token_expiry = account.get("token_expiry")
+        access_token = account.get("access_token")
+        refresh_token = account.get("refresh_token")
+        provider = account.get("provider")
+        account_id = account.get("id")
+    
     if not token_expiry:
-        return decrypt_token(account["access_token"])
+        return decrypt_token(access_token)
 
-    expiry_time = datetime.fromisoformat(token_expiry.replace("Z", "+00:00"))
+    # Handle string datetime
+    if isinstance(token_expiry, str):
+        expiry_time = datetime.fromisoformat(token_expiry.replace("Z", "+00:00"))
+    else:
+        expiry_time = token_expiry
+    
     now = datetime.now(timezone.utc)
 
     # Refresh if token expires in next 5 minutes
     if expiry_time <= now + timedelta(minutes=5):
-        refresh_token = decrypt_token(account.get("refresh_token"))
-        if not refresh_token:
-            syslog("no_refresh_token", "get_valid_access_token", {"account_id": account["id"]})
+        decrypted_refresh = decrypt_token(refresh_token) if refresh_token else None
+        if not decrypted_refresh:
+            syslog("no_refresh_token", "get_valid_access_token", {"account_id": account_id})
             return None
 
         # Refresh based on provider
-        provider = account["provider"]
         if provider == "gmail":
             new_tokens = refresh_google_access_token(refresh_token)
         elif provider == "outlook":
@@ -82,14 +102,13 @@ def get_valid_access_token(account: dict) -> str:
 
         # Update account with new token
         new_expiry = datetime.now(timezone.utc) + timedelta(seconds=new_tokens["expires_in"])
-        supabase.table("connected_accounts").update({
-            "access_token": encrypt_token(new_tokens["access_token"]),
-            "token_expiry": new_expiry.isoformat(),
-        }).eq("id", account["id"]).execute()
+        account.access_token = encrypt_token(new_tokens["access_token"])
+        account.token_expiry = new_expiry
+        account.save()
 
         return new_tokens["access_token"]
 
-    return decrypt_token(account["access_token"])
+    return decrypt_token(account.access_token)
 
 
 # ==========================================
@@ -171,28 +190,45 @@ def execute_email_action(email_id: int, action: str):
     """
     Execute the final action on an email (spam/delete/allow).
     Called after classification in decision_engine.py
+    Note: "quarantine" action is converted to "spam" for Gmail/Outlook APIs
     """
     try:
-        email_resp = supabase.table("emails").select("*").eq("id", email_id).execute()
-        if not email_resp.data:
+        try:
+            email_obj = Email.objects.get(id=email_id)
+        except Email.DoesNotExist:
+            syslog("execute_action_error", "execute_email_action", {"email_id": email_id, "error": "Email not found"})
             return False
 
-        email = email_resp.data[0]
-        message_id = email["message_id"]
-
-        account_resp = supabase.table("connected_accounts").select("*").eq("id", email["account_id"]).execute()
-        if not account_resp.data:
-            return False
-
-        account = account_resp.data[0]
+        message_id = email_obj.message_id
+        account = email_obj.account
         token = get_valid_access_token(account)
         if not token:
+            syslog("execute_action_error", "execute_email_action", {"email_id": email_id, "error": "No valid token"})
             return False
 
-        if account["provider"] == "gmail":
-            return apply_gmail_action(message_id, action, account["email_address"], token)
-        elif account["provider"] == "outlook":
-            return apply_outlook_action(message_id, action, token)
+        # Convert "quarantine" to "spam" for API calls
+        api_action = "spam" if action == "quarantine" else action
+
+        if account.provider == "gmail":
+            result = apply_gmail_action(message_id, api_action, account.email_address, token)
+            syslog("execute_action_result", "execute_email_action", {
+                "email_id": email_id,
+                "action": action,
+                "api_action": api_action,
+                "provider": "gmail",
+                "success": result
+            })
+            return result
+        elif account.provider == "outlook":
+            result = apply_outlook_action(message_id, api_action, token)
+            syslog("execute_action_result", "execute_email_action", {
+                "email_id": email_id,
+                "action": action,
+                "api_action": api_action,
+                "provider": "outlook",
+                "success": result
+            })
+            return result
 
         return False
 

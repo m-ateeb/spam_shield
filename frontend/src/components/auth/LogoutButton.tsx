@@ -1,8 +1,10 @@
-import { supabase } from '../../lib/supabaseClient'
+import { useAuth } from '../../context/AuthContext'
 
 export const LogoutButton = () => {
+  const { signOut } = useAuth()
+
   const handleLogout = async () => {
-    await supabase.auth.signOut()
+    await signOut()
   }
 
   return <button onClick={handleLogout}>Logout</button>

@@ -36,17 +36,52 @@ function init() {
 // EMAIL VIEW MONITORING
 // ============================================
 function observeEmailView() {
+  let lastUrl = window.location.href;
+  let debounceTimer = null;
+  
   const observer = new MutationObserver((mutations) => {
-    const emailView = document.querySelector(OUTLOOK_SELECTORS.EMAIL_BODY);
-    if (emailView) {
-      handleEmailOpened();
+    const currentUrl = window.location.href;
+    
+    // Skip if URL hasn't changed (just DOM mutations from other sources)
+    if (currentUrl === lastUrl) {
+      return;
     }
+    
+    // Check if we're viewing an actual email (has subject, sender, and body)
+    const emailSubject = document.querySelector(OUTLOOK_SELECTORS.EMAIL_SUBJECT);
+    const emailSender = document.querySelector(OUTLOOK_SELECTORS.EMAIL_SENDER);
+    const emailBody = document.querySelector(OUTLOOK_SELECTORS.EMAIL_BODY);
+    
+    // Only proceed if we have all email elements (actual email view, not inbox list)
+    if (!emailSubject || !emailSender || !emailBody) {
+      lastUrl = currentUrl;
+      return;
+    }
+    
+    // Debounce to avoid multiple triggers on rapid navigation
+    if (debounceTimer) {
+      clearTimeout(debounceTimer);
+    }
+    
+    debounceTimer = setTimeout(() => {
+      lastUrl = currentUrl;
+      handleEmailOpened();
+    }, 500); // Wait 500ms after navigation stops
   });
 
   observer.observe(document.body, {
     childList: true,
-    subtree: true
+    subtree: true,
+    attributes: false // Don't trigger on attribute changes
   });
+  
+  // Also listen for URL changes (Outlook uses pushState for navigation)
+  const originalPushState = history.pushState;
+  history.pushState = function(...args) {
+    originalPushState.apply(history, args);
+    // Reset lastUrl to trigger check on next mutation
+    lastUrl = '';
+  };
 }
 
 async function handleEmailOpened() {
@@ -206,8 +241,11 @@ function displaySpamIndicator(result) {
     header.appendChild(indicator);
   }
   
-  // Show prominent popup notification
-  showEmailAnalysisPopup(result);
+  // Only show prominent popup notification for threats (phishing/suspicious), not for safe emails
+  const { verdict, action } = result;
+  if (verdict === 'phishing' || verdict === 'suspicious' || action === 'delete' || action === 'quarantine') {
+    showEmailAnalysisPopup(result);
+  }
 }
 
 function createIndicatorElement(result) {

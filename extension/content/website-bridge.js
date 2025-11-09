@@ -32,7 +32,8 @@ window.addEventListener('message', (event) => {
   }
   
   if (event.data.type === 'SPAM_SHIELD_LOGOUT') {
-    console.log('🚪 Logout request from website');
+    console.log('🚪 Logout request from website - clearing extension auth only');
+    // Only clear extension storage, don't call backend logout
     chrome.runtime.sendMessage({ action: 'LOGOUT' });
   }
 });
