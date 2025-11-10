@@ -435,21 +435,28 @@ def list_quarantined_emails(request):
         result = []
         for q in quarantined:
             email = q.email
-            classification = getattr(email, 'classification', None)
+            if not email:
+                continue
+                
+            # Only include emails with complete classification - no fallbacks
+            try:
+                classification = email.classification
+            except:
+                # Skip if no classification exists - analysis not complete
+                continue
             
-            # Get threat type from classification or reason
-            threat = 'Unknown'
-            score = 0
-            if classification:
-                if classification.rule_engine_verdict == 'malicious':
-                    threat = 'Malicious'
-                elif 'phishing' in q.reason.lower():
-                    threat = 'Phishing'
-                elif 'spam' in q.reason.lower():
-                    threat = 'Spam'
-                elif 'malware' in q.reason.lower():
-                    threat = 'Malware'
-                score = int(classification.confidence_score) if classification.confidence_score else 0
+            # Get threat type from classification verdict only - no fallbacks
+            verdict = classification.rule_engine_verdict.lower()
+            if verdict == 'phishing' or verdict == 'malicious':
+                threat = 'Phishing'
+            elif verdict == 'suspicious':
+                threat = 'Spam'
+            elif verdict == 'malware':
+                threat = 'Malware'
+            else:
+                threat = 'Unknown'
+            
+            score = int(classification.confidence_score) if classification.confidence_score else 0
             
             result.append({
                 'id': q.id,
@@ -459,7 +466,7 @@ def list_quarantined_emails(request):
                 'date': q.created_at.strftime('%Y-%m-%d %H:%M') if q.created_at else '',
                 'threat': threat,
                 'score': score,
-                'reason': q.reason,
+                'reason': classification.reason or q.reason,
                 'status': q.status,
                 'created_at': q.created_at.isoformat() if q.created_at else None,
             })

@@ -241,10 +241,35 @@ def analyze_email_extension(request):
             url_verdicts.append(url_result.get("final_verdict", "safe"))
 
         # === RUN DECISION ENGINE ===
+        # Check if URL analysis is complete before running classification
+        url_analyses = URLAnalysis.objects.filter(email=email_obj)
+        url_results = [u.final_verdict for u in url_analyses]
+        url_pending = url_results.count("pending")
+        
+        # If URLs are still being analyzed, return pending status
+        if len(url_results) > 0 and url_pending > 0:
+            return JsonResponse({
+                'email_id': email_id,
+                'verdict': 'pending',
+                'action': 'none',
+                'reason': f'URL analysis in progress ({url_pending} pending)',
+                'auth_score': auth_result['auth_score'],
+                'urls_analyzed': len(urls),
+            })
+        
+        # Run classification only when analysis is complete
         classification_result = run_rule_based_classification(email_id)
 
+        # If classification returned None, analysis is not complete
         if not classification_result:
-            return JsonResponse({'error': 'Classification failed'}, status=500)
+            return JsonResponse({
+                'email_id': email_id,
+                'verdict': 'pending',
+                'action': 'none',
+                'reason': 'Analysis in progress - please wait',
+                'auth_score': auth_result['auth_score'],
+                'urls_analyzed': len(urls),
+            })
 
         # === RETURN RESULT ===
         response = {
@@ -277,7 +302,7 @@ def analyze_email_extension(request):
 
 
 def get_analysis_result(email_id: int) -> dict:
-    """Get existing analysis result for an email"""
+    """Get existing analysis result for an email - only if analysis is complete"""
     try:
         # Get email object
         try:
@@ -289,7 +314,20 @@ def get_analysis_result(email_id: int) -> dict:
                 'reason': 'Email not found'
             }
 
-        # Get classification result
+        # Check if URL analysis is complete
+        url_analyses = email_obj.url_analyses.all()
+        url_verdicts = [u.final_verdict for u in url_analyses]
+        url_pending = url_verdicts.count("pending")
+        
+        # If URLs are still being analyzed, return pending
+        if len(url_verdicts) > 0 and url_pending > 0:
+            return {
+                'verdict': 'pending',
+                'action': 'none',
+                'reason': f'URL analysis in progress ({url_pending} pending)'
+            }
+
+        # Get classification result - must exist for complete analysis
         try:
             classification = email_obj.classification
         except ClassificationResult.DoesNotExist:
@@ -299,18 +337,24 @@ def get_analysis_result(email_id: int) -> dict:
                 'reason': 'Analysis in progress'
             }
 
+        # Verify authentication results exist
+        try:
+            auth_result = email_obj.auth_result
+        except:
+            return {
+                'verdict': 'pending',
+                'action': 'none',
+                'reason': 'Authentication analysis in progress'
+            }
+
         # Get email details
         auth_score = email_obj.auth_score
-
-        # Get URL analysis count
-        url_analyses = email_obj.url_analyses.all()
-        url_verdicts = [u.final_verdict for u in url_analyses]
 
         return {
             'email_id': email_id,
             'verdict': classification.rule_engine_verdict,
             'action': classification.final_action,
-            'reason': classification.reason or 'Cached result from previous analysis',
+            'reason': classification.reason,
             'auth_score': auth_score,
             'urls_analyzed': len(url_verdicts),
             'url_analysis': f"{url_verdicts.count('safe')} safe, {url_verdicts.count('suspicious')} suspicious, {url_verdicts.count('malicious')} malicious"
@@ -319,9 +363,9 @@ def get_analysis_result(email_id: int) -> dict:
     except Exception as e:
         logger.error(f"Error getting analysis result: {str(e)}")
         return {
-            'verdict': 'error',
+            'verdict': 'pending',
             'action': 'none',
-            'reason': 'Failed to retrieve result'
+            'reason': 'Analysis in progress'
         }
 
 

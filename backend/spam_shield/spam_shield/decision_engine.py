@@ -17,23 +17,43 @@ def run_rule_based_classification(email_id: int):
             syslog("email_not_found", "run_rule_based_classification", {"email_id": email_id})
             return None
 
-        # Get auth results
+        # Get auth results - must exist for classification
         try:
             auth_result = email_obj.auth_result
             spf = auth_result.spf_status
             dkim = auth_result.dkim_status
             dmarc = auth_result.dmarc_status
         except EmailAuthResult.DoesNotExist:
-            spf = "unknown"
-            dkim = "unknown"
-            dmarc = "unknown"
+            # Authentication results must exist - do not classify without them
+            syslog("classification_deferred", "run_rule_based_classification", {
+                "email_id": email_id,
+                "message": "Classification deferred - authentication results not available"
+            })
+            return None
 
         # Get URL analysis results
         url_analyses = URLAnalysis.objects.filter(email=email_obj)
         url_results = [u.final_verdict for u in url_analyses]
+        url_pending = url_results.count("pending")
         url_safe = url_results.count("safe")
         url_suspicious = url_results.count("suspicious")
         url_malicious = url_results.count("malicious")
+
+        # If URLs are still being analyzed, DO NOT classify - return None to indicate analysis incomplete
+        # Only proceed if we have complete analysis or no URLs to analyze
+        has_urls = len(url_results) > 0
+        if has_urls and url_pending > 0:
+            # URLs are still being analyzed - do not return any result
+            syslog(
+                "classification_deferred",
+                "run_rule_based_classification",
+                {
+                    "email_id": email_id,
+                    "pending_urls": url_pending,
+                    "message": "Classification deferred until URL analysis completes"
+                },
+            )
+            return None  # Return None to indicate analysis is not complete
 
         # Calculate auth score from email object
         auth_score = email_obj.auth_score
@@ -57,45 +77,32 @@ def run_rule_based_classification(email_id: int):
         ]
         is_known_legitimate = sender_domain.lower() in known_legitimate_domains
         
-        # Determine verdict based on multiple factors (more lenient for legitimate emails)
+        # Determine verdict based on score thresholds:
+        # Score < 20: Phishing
+        # Score 20-40: Spam (Suspicious)
+        # Score >= 40: Safe
+        
+        # First check for malicious URLs - always phishing regardless of score
         if url_malicious > 0:
-            # Malicious URLs are always a red flag
             verdict = "phishing"
             action = "delete"
             reason = f"Malicious URLs detected ({url_malicious} malicious URL(s))"
-        elif auth_score < 20 or (auth_failures >= 3 and not is_known_legitimate):
-            # Very low score or multiple failures (unless from known legitimate domain)
+        # Score-based classification
+        elif auth_score < 20:
+            # Score < 20: Phishing
             verdict = "phishing"
             action = "delete"
             reason = f"Very low authenticity score ({auth_score}/100) - SPF:{spf}, DKIM:{dkim}, DMARC:{dmarc}"
-        elif url_suspicious > 2 or (auth_score < 30 and auth_failures >= 2 and not is_known_legitimate):
-            # Multiple suspicious URLs or low score with failures (unless from known domain)
+        elif auth_score < 40:
+            # Score 20-40: Spam (Suspicious)
             verdict = "suspicious"
             action = "quarantine"
-            if url_suspicious > 2:
-                reason = f"Multiple suspicious URLs detected ({url_suspicious} suspicious URL(s))"
-            else:
-                reason = f"Low authenticity score ({auth_score}/100) with authentication failures"
-        elif url_suspicious > 0 and auth_score < 40 and not is_known_legitimate:
-            # Suspicious URLs with low score (unless from known domain)
-            verdict = "suspicious"
-            action = "quarantine"
-            reason = f"Suspicious URLs detected ({url_suspicious} suspicious URL(s)) with moderate authenticity"
-        elif auth_passes >= 2 and auth_score >= 60:
-            # Good authentication
+            reason = f"Low authenticity score ({auth_score}/100) - SPF:{spf}, DKIM:{dkim}, DMARC:{dmarc}"
+        else:
+            # Score >= 40: Safe
             verdict = "safe"
             action = "allow"
             reason = f"Passed authenticity checks (Score: {auth_score}/100) - SPF:{spf}, DKIM:{dkim}, DMARC:{dmarc}"
-        elif is_known_legitimate and auth_score >= 30:
-            # Known legitimate domain with reasonable score
-            verdict = "safe"
-            action = "allow"
-            reason = f"From trusted domain ({sender_domain}) - Score: {auth_score}/100"
-        else:
-            # Default to safe (more lenient)
-            verdict = "safe"
-            action = "allow"
-            reason = f"Passed basic checks (Score: {auth_score}/100)"
 
         # Create or update classification result
         ClassificationResult.objects.update_or_create(

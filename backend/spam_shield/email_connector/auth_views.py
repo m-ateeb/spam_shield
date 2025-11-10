@@ -428,6 +428,10 @@ def email_password_login(request):
                 pass
         
         if user is not None:
+            # Specify backend since multiple backends are configured
+            # authenticate() sets user.backend, but we'll be explicit
+            if not hasattr(user, 'backend'):
+                user.backend = 'django.contrib.auth.backends.ModelBackend'
             login(request, user)
             token, created = Token.objects.get_or_create(user=user)
             return Response({
@@ -483,8 +487,8 @@ def email_password_signup(request):
             password=password
         )
         
-        # Login user
-        login(request, user)
+        # Login user - specify backend since multiple backends are configured
+        login(request, user, backend='django.contrib.auth.backends.ModelBackend')
         token, created = Token.objects.get_or_create(user=user)
         
         return Response({

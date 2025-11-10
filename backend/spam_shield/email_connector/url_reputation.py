@@ -226,6 +226,15 @@ def poll_urlscan_result(self, scan_id: str, email_id: int, url: str):
                 "email_id": email_id, "url": url, "verdict": final_verdict
             })
             
+            # Re-run classification now that URL analysis is complete
+            try:
+                from spam_shield.decision_engine import run_rule_based_classification
+                run_rule_based_classification(email_id)
+            except Exception as e:
+                syslog("reclassification_error", "poll_urlscan_result", {
+                    "email_id": email_id, "error": str(e)
+                })
+            
     except Exception as e:
         syslog("urlscan_poll_error", "poll_urlscan_result", {
             "email_id": email_id, "url": url, "error": str(e)

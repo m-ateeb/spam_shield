@@ -116,14 +116,7 @@ export const Signup = () => {
             >
               <FcGoogle size={22} /> Sign up with Google
             </Button>
-            <Button
-              variant="outline"
-              className="flex items-center justify-center gap-3 h-11"
-              onClick={() => handleOAuth('microsoft')}
-              disabled={loading}
-            >
-              <FaMicrosoft size={22} className="text-blue-600" /> Sign up with Microsoft
-            </Button>
+          
           </div>
 
           <p className="mt-4 text-sm text-center text-gray-500">
