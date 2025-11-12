@@ -33,7 +33,7 @@ export const Header = () => {
           <div className="p-1.5 bg-gradient-to-br from-accent to-accent/70 rounded-lg group-hover:scale-110 transition-transform">
             <Shield className="h-5 w-5 text-accent-foreground" />
           </div>
-          <span className="text-xl font-bold">SpamShield</span>
+          <span className="text-xl font-bold">InboxGuardian</span>
         </Link>
 
         {/* Desktop Navigation */}

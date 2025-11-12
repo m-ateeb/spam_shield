@@ -161,6 +161,18 @@ def analyze_email_extension(request):
         try:
             existing_email = Email.objects.filter(message_id=message_id).first()
             if existing_email:
+                # CRITICAL: Only mark as opened if user is actually viewing the email
+                # This endpoint is called when user opens an email in Gmail/Outlook
+                # So it's safe to mark as opened here
+                if not existing_email.opened_at:
+                    existing_email.opened_at = timezone.now()
+                    existing_email.save(update_fields=['opened_at'])
+                    syslog("email_opened", "analyze_email_extension", {
+                        "email_id": existing_email.id,
+                        "message_id": message_id,
+                        "note": "Email marked as opened via extension"
+                    })
+                
                 # Email already analyzed, return cached result
                 result = get_analysis_result(existing_email.id)
                 return JsonResponse(result)
@@ -206,12 +218,19 @@ def analyze_email_extension(request):
             body_html=body_html,
             highlighted_body_html=body_html,
             received_at=timezone.now(),
+            opened_at=timezone.now(),  # Mark as opened since user is viewing it
             spf_result=auth_result["spf_result"],
             dkim_result=auth_result["dkim_result"],
             dmarc_policy=auth_result["dmarc_policy"],
             auth_score=auth_result["auth_score"],
-            is_suspicious=auth_result["auth_score"] < 50,  # Mark as suspicious if score is low
+            is_suspicious=False,  # Don't mark as suspicious until full analysis is complete
         )
+        
+        # Log that email was opened
+        syslog("email_opened", "analyze_email_extension", {
+            "email_id": email_obj.id,
+            "message_id": message_id
+        })
         email_id = email_obj.id
 
         # === INSERT AUTH RESULTS ===
@@ -241,12 +260,12 @@ def analyze_email_extension(request):
             url_verdicts.append(url_result.get("final_verdict", "safe"))
 
         # === RUN DECISION ENGINE ===
-        # Check if URL analysis is complete before running classification
+        # CRITICAL: Check if URL analysis is complete before running classification
         url_analyses = URLAnalysis.objects.filter(email=email_obj)
         url_results = [u.final_verdict for u in url_analyses]
         url_pending = url_results.count("pending")
         
-        # If URLs are still being analyzed, return pending status
+        # If URLs are still being analyzed, return pending status - DO NOT classify yet
         if len(url_results) > 0 and url_pending > 0:
             return JsonResponse({
                 'email_id': email_id,
@@ -255,12 +274,13 @@ def analyze_email_extension(request):
                 'reason': f'URL analysis in progress ({url_pending} pending)',
                 'auth_score': auth_result['auth_score'],
                 'urls_analyzed': len(urls),
+                'analysis_complete': False,  # Explicitly mark as incomplete
             })
         
         # Run classification only when analysis is complete
         classification_result = run_rule_based_classification(email_id)
 
-        # If classification returned None, analysis is not complete
+        # If classification returned None, analysis is not complete - return pending
         if not classification_result:
             return JsonResponse({
                 'email_id': email_id,
@@ -269,17 +289,60 @@ def analyze_email_extension(request):
                 'reason': 'Analysis in progress - please wait',
                 'auth_score': auth_result['auth_score'],
                 'urls_analyzed': len(urls),
+                'analysis_complete': False,  # Explicitly mark as incomplete
+            })
+        
+        # CRITICAL: Double-check that classification is actually complete
+        # Verify that we have a classification result AND it's not based on incomplete data
+        try:
+            classification_obj = ClassificationResult.objects.get(email=email_obj)
+            # Verify URL analysis is still complete (no new pending URLs)
+            url_analyses_check = URLAnalysis.objects.filter(email=email_obj)
+            url_results_check = [u.final_verdict for u in url_analyses_check]
+            url_pending_check = url_results_check.count("pending")
+            
+            # If URLs became pending again, return pending
+            if len(url_results_check) > 0 and url_pending_check > 0:
+                return JsonResponse({
+                    'email_id': email_id,
+                    'verdict': 'pending',
+                    'action': 'none',
+                    'reason': 'URL analysis still in progress',
+                    'auth_score': auth_result['auth_score'],
+                    'urls_analyzed': len(urls),
+                    'analysis_complete': False,
+                })
+        except ClassificationResult.DoesNotExist:
+            # No classification yet, return pending
+            return JsonResponse({
+                'email_id': email_id,
+                'verdict': 'pending',
+                'action': 'none',
+                'reason': 'Classification not yet complete',
+                'auth_score': auth_result['auth_score'],
+                'urls_analyzed': len(urls),
+                'analysis_complete': False,
             })
 
         # === RETURN RESULT ===
+        # Only return final result if analysis is 100% complete
+        # Get the saved classification to include confidence_score
+        try:
+            saved_classification = ClassificationResult.objects.get(email=email_obj)
+            confidence_score = saved_classification.confidence_score
+        except ClassificationResult.DoesNotExist:
+            confidence_score = classification_result.get('confidence', 0.0)
+        
         response = {
             'email_id': email_id,
             'verdict': classification_result['verdict'],
             'action': classification_result['action'],
             'reason': classification_result['reason'],
+            'confidence_score': confidence_score,
             'auth_score': auth_result['auth_score'],
             'urls_analyzed': len(urls),
-            'url_analysis': f"{url_verdicts.count('safe')} safe, {url_verdicts.count('suspicious')} suspicious, {url_verdicts.count('malicious')} malicious"
+            'url_analysis': f"{url_verdicts.count('safe')} safe, {url_verdicts.count('suspicious')} suspicious, {url_verdicts.count('malicious')} malicious",
+            'analysis_complete': True,  # Mark as complete only when all analysis is done
         }
 
         syslog("extension_analysis", "analyze_email_extension", {
@@ -311,7 +374,8 @@ def get_analysis_result(email_id: int) -> dict:
             return {
                 'verdict': 'pending',
                 'action': 'none',
-                'reason': 'Email not found'
+                'reason': 'Email not found',
+                'analysis_complete': False,
             }
 
         # Check if URL analysis is complete
@@ -319,12 +383,13 @@ def get_analysis_result(email_id: int) -> dict:
         url_verdicts = [u.final_verdict for u in url_analyses]
         url_pending = url_verdicts.count("pending")
         
-        # If URLs are still being analyzed, return pending
+        # If URLs are still being analyzed, return pending - DO NOT return any verdict
         if len(url_verdicts) > 0 and url_pending > 0:
             return {
                 'verdict': 'pending',
                 'action': 'none',
-                'reason': f'URL analysis in progress ({url_pending} pending)'
+                'reason': f'URL analysis in progress ({url_pending} pending)',
+                'analysis_complete': False,
             }
 
         # Get classification result - must exist for complete analysis
@@ -334,7 +399,8 @@ def get_analysis_result(email_id: int) -> dict:
             return {
                 'verdict': 'pending',
                 'action': 'none',
-                'reason': 'Analysis in progress'
+                'reason': 'Analysis in progress',
+                'analysis_complete': False,
             }
 
         # Verify authentication results exist
@@ -344,20 +410,24 @@ def get_analysis_result(email_id: int) -> dict:
             return {
                 'verdict': 'pending',
                 'action': 'none',
-                'reason': 'Authentication analysis in progress'
+                'reason': 'Authentication analysis in progress',
+                'analysis_complete': False,
             }
 
         # Get email details
         auth_score = email_obj.auth_score
 
+        # Return complete result only when all analysis is done
         return {
             'email_id': email_id,
             'verdict': classification.rule_engine_verdict,
             'action': classification.final_action,
             'reason': classification.reason,
+            'confidence_score': classification.confidence_score,
             'auth_score': auth_score,
             'urls_analyzed': len(url_verdicts),
-            'url_analysis': f"{url_verdicts.count('safe')} safe, {url_verdicts.count('suspicious')} suspicious, {url_verdicts.count('malicious')} malicious"
+            'url_analysis': f"{url_verdicts.count('safe')} safe, {url_verdicts.count('suspicious')} suspicious, {url_verdicts.count('malicious')} malicious",
+            'analysis_complete': True,  # Mark as complete
         }
 
     except Exception as e:
@@ -365,7 +435,8 @@ def get_analysis_result(email_id: int) -> dict:
         return {
             'verdict': 'pending',
             'action': 'none',
-            'reason': 'Analysis in progress'
+            'reason': 'Analysis in progress',
+            'analysis_complete': False,
         }
 
 

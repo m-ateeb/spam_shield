@@ -160,7 +160,7 @@ def save_email(raw_msg, account):
             dkim_result=auth_result["dkim_result"],
             dmarc_policy=auth_result["dmarc_policy"],
             auth_score=auth_result["auth_score"],
-            is_suspicious=auth_result["auth_score"] < 60,
+            is_suspicious=False,  # Don't mark as suspicious until full analysis is complete
         )
         email_id = email_obj.id
 
@@ -204,12 +204,36 @@ def save_email(raw_msg, account):
 def run_post_process_pipeline(email_id: int):
     """
     Run post-processing pipeline:
-    Step 1: Decision Engine (Module 4)
+    Step 1: Wait for URL analysis to complete
+    Step 2: Decision Engine (Module 4)
     """
     from spam_shield.decision_engine import run_rule_based_classification
     try:
+        # Check if URL analysis is complete before running classification
+        email_obj = Email.objects.filter(id=email_id).first()
+        if not email_obj:
+            syslog("pipeline_error", "run_post_process_pipeline", {"email_id": email_id, "error": "Email not found"})
+            return
+        
+        # Check for pending URL analysis
+        url_analyses = URLAnalysis.objects.filter(email=email_obj)
+        url_results = [u.final_verdict for u in url_analyses]
+        url_pending = url_results.count("pending")
+        
+        # If URLs are still being analyzed, do NOT run classification yet
+        if len(url_results) > 0 and url_pending > 0:
+            syslog("pipeline_deferred", "run_post_process_pipeline", {
+                "email_id": email_id, 
+                "pending_urls": url_pending,
+                "message": "Classification deferred - URL analysis still in progress"
+            })
+            return  # Exit without running classification
+        
+        # Run classification only when analysis is complete
         result = run_rule_based_classification(email_id)
         if result:
             syslog("pipeline_complete", "run_post_process_pipeline", {"email_id": email_id, "result": result})
+        else:
+            syslog("pipeline_incomplete", "run_post_process_pipeline", {"email_id": email_id, "message": "Classification returned None"})
     except Exception as e:
         syslog("pipeline_error", "run_post_process_pipeline", {"email_id": email_id, "error": str(e)})

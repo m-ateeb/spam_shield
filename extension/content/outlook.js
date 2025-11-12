@@ -18,6 +18,7 @@ const OUTLOOK_SELECTORS = {
 let currentEmailId = null;
 let analysisCache = new Map();
 let authPopupShown = false; // Prevent infinite auth popups
+let pollingIntervals = new Map(); // Track polling intervals per email
 
 // ============================================
 // INITIALIZATION
@@ -94,11 +95,15 @@ async function handleEmailOpened() {
     currentEmailId = emailData.messageId;
     console.log('📧 Email opened:', emailData.subject);
 
-    // Check cache
+    // Check cache first - but only use if analysis is complete
     if (analysisCache.has(emailData.messageId)) {
       const cachedResult = analysisCache.get(emailData.messageId);
-      displaySpamIndicator(cachedResult);
-      return;
+      // Only use cached result if analysis is complete
+      if (cachedResult.analysis_complete === true) {
+        displaySpamIndicator(cachedResult);
+        return;
+      }
+      // If cached but incomplete, continue to poll
     }
 
     // Show loading
@@ -121,6 +126,14 @@ async function handleEmailOpened() {
       return;
     }
 
+    // Check if analysis is complete
+    if (response.result.verdict === 'pending' || !response.result.analysis_complete) {
+      // Analysis not complete - start polling for updates
+      startPollingForResult(emailData.messageId, emailData);
+      return;
+    }
+
+    // Cache result only when complete
     analysisCache.set(emailData.messageId, response.result);
     removeLoadingIndicator();
     displaySpamIndicator(response.result);
@@ -136,6 +149,80 @@ async function handleEmailOpened() {
     }
     
     console.error('❌ Error handling email:', error);
+  }
+}
+
+// ============================================
+// POLLING FOR ANALYSIS RESULTS
+// ============================================
+async function startPollingForResult(messageId, emailData) {
+  // Stop any existing polling for this email
+  stopPollingForResult(messageId);
+  
+  // Show loading indicator
+  showLoadingIndicator();
+  
+  let pollCount = 0;
+  const maxPolls = 30; // Poll for up to 30 times (5 minutes if 10s interval)
+  const pollInterval = 10000; // Poll every 10 seconds
+  
+  const pollIntervalId = setInterval(async () => {
+    pollCount++;
+    
+    try {
+      // Request updated analysis result
+      const response = await chrome.runtime.sendMessage({
+        action: 'ANALYZE_EMAIL',
+        data: emailData
+      });
+      
+      if (response && response.result) {
+        const result = response.result;
+        
+        // Check if analysis is now complete
+        if (result.verdict !== 'pending' && result.analysis_complete === true) {
+          // Analysis complete - stop polling and display result
+          stopPollingForResult(messageId);
+          removeLoadingIndicator();
+          
+          // Cache and display final result
+          analysisCache.set(messageId, result);
+          displaySpamIndicator(result);
+          
+          console.log(`✅ Analysis complete for ${emailData.subject} after ${pollCount} polls`);
+          return;
+        }
+        
+        // Still pending - update the analyzing indicator and continue polling
+        displaySpamIndicator(result); // This will show "Analyzing..." indicator
+        if (pollCount % 3 === 0) { // Log every 3rd poll
+          console.log(`⏳ Still analyzing ${emailData.subject}... (poll ${pollCount}/${maxPolls})`);
+        }
+      }
+    } catch (error) {
+      console.error('❌ Error polling for result:', error);
+      // Continue polling on error
+    }
+    
+    // Stop polling if max polls reached
+    if (pollCount >= maxPolls) {
+      stopPollingForResult(messageId);
+      removeLoadingIndicator();
+      console.warn(`⏱️ Polling timeout for ${emailData.subject} - analysis may still be in progress`);
+      // Show a message that analysis is taking longer than expected
+      showLoadingIndicator('Analysis taking longer than expected...');
+    }
+  }, pollInterval);
+  
+  // Store interval ID
+  pollingIntervals.set(messageId, pollIntervalId);
+}
+
+function stopPollingForResult(messageId) {
+  const intervalId = pollingIntervals.get(messageId);
+  if (intervalId) {
+    clearInterval(intervalId);
+    pollingIntervals.delete(messageId);
   }
 }
 
@@ -223,14 +310,32 @@ function generateTempId() {
 // SPAM INDICATOR UI
 // ============================================
 function displaySpamIndicator(result) {
+  // Remove existing indicator and loader
   const existingIndicator = document.getElementById('spam-shield-indicator-outlook');
   if (existingIndicator) {
     existingIndicator.remove();
   }
+  removeLoadingIndicator();
 
   const header = document.querySelector(OUTLOOK_SELECTORS.EMAIL_HEADER);
   if (!header) return;
 
+  // CRITICAL: Check if analysis is complete before displaying
+  const { verdict, action, analysis_complete } = result;
+  
+  // If analysis is not complete, show analyzing indicator
+  if (!analysis_complete || verdict === 'pending') {
+    const analyzingIndicator = createAnalyzingIndicator();
+    const firstChild = header.firstElementChild;
+    if (firstChild) {
+      header.insertBefore(analyzingIndicator, firstChild);
+    } else {
+      header.appendChild(analyzingIndicator);
+    }
+    return; // Don't show any verdict until analysis is complete
+  }
+
+  // Analysis is complete - show the indicator
   const indicator = createIndicatorElement(result);
   
   // Insert at the top of header
@@ -242,10 +347,27 @@ function displaySpamIndicator(result) {
   }
   
   // Only show prominent popup notification for threats (phishing/suspicious), not for safe emails
-  const { verdict, action } = result;
-  if (verdict === 'phishing' || verdict === 'suspicious' || action === 'delete' || action === 'quarantine') {
+  // CRITICAL: Only show popup if analysis is complete - never show for pending results
+  if (analysis_complete === true && (verdict === 'phishing' || verdict === 'suspicious' || action === 'delete' || action === 'quarantine')) {
     showEmailAnalysisPopup(result);
   }
+}
+
+function createAnalyzingIndicator() {
+  const container = document.createElement('div');
+  container.id = 'spam-shield-indicator-outlook';
+  container.className = 'spam-shield-indicator outlook-style';
+  container.innerHTML = `
+    <div class="spam-shield-banner loading" style="background-color: #f3f4f6; border-left: 4px solid #6b7280;">
+      <div class="spam-shield-content">
+        <span class="spam-shield-icon" style="font-size: 20px;">⏳</span>
+        <div class="spam-shield-text-container">
+          <strong style="color: #6b7280;">Analyzing...</strong>
+        </div>
+      </div>
+    </div>
+  `;
+  return container;
 }
 
 function createIndicatorElement(result) {
@@ -253,7 +375,12 @@ function createIndicatorElement(result) {
   container.id = 'spam-shield-indicator-outlook';
   container.className = 'spam-shield-indicator outlook-style';
 
-  const { verdict, action, reason } = result;
+  const { verdict, action, reason, analysis_complete } = result;
+
+  // CRITICAL: Show "Analyzing..." if analysis is not complete
+  if (!analysis_complete || verdict === 'pending') {
+    return createAnalyzingIndicator();
+  }
 
   let status = 'safe';
   let icon = '✅';
@@ -261,6 +388,7 @@ function createIndicatorElement(result) {
   let color = '#10b981';
   let bgColor = '#d1fae5';
 
+  // Only show final verdict when analysis is complete
   if (verdict === 'phishing' || action === 'delete') {
     status = 'danger';
     icon = '🚨';

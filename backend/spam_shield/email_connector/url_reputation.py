@@ -226,10 +226,29 @@ def poll_urlscan_result(self, scan_id: str, email_id: int, url: str):
                 "email_id": email_id, "url": url, "verdict": final_verdict
             })
             
-            # Re-run classification now that URL analysis is complete
+            # Re-run classification ONLY if all URLs are now complete
             try:
-                from spam_shield.decision_engine import run_rule_based_classification
-                run_rule_based_classification(email_id)
+                from email_connector.models import Email
+                email_obj = Email.objects.filter(id=email_id).first()
+                if email_obj:
+                    # Check if all URLs are now complete
+                    url_analyses = URLAnalysis.objects.filter(email=email_obj)
+                    url_results = [u.final_verdict for u in url_analyses]
+                    url_pending = url_results.count("pending")
+                    
+                    # Only run classification if all URLs are complete
+                    if url_pending == 0:
+                        from spam_shield.decision_engine import run_rule_based_classification
+                        result = run_rule_based_classification(email_id)
+                        if result:
+                            syslog("reclassification_complete", "poll_urlscan_result", {
+                                "email_id": email_id, "result": result
+                            })
+                    else:
+                        syslog("reclassification_deferred", "poll_urlscan_result", {
+                            "email_id": email_id, "pending_urls": url_pending,
+                            "message": "Still waiting for other URL analyses to complete"
+                        })
             except Exception as e:
                 syslog("reclassification_error", "poll_urlscan_result", {
                     "email_id": email_id, "error": str(e)

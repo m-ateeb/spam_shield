@@ -129,14 +129,14 @@ const Settings = () => {
               <div className="text-center py-8 space-y-4">
                 <p className="text-muted-foreground">No email accounts connected</p>
                 <div className="flex gap-3 justify-center">
-                  <Button onClick={handleConnectGmail}>
+                  {/* <Button onClick={handleConnectGmail}>
                     <Mail className="h-4 w-4 mr-2" />
                     Connect Gmail
-                  </Button>
-                  <Button onClick={handleConnectOutlook} variant="outline">
+                  </Button> */}
+                  {/* <Button onClick={handleConnectOutlook} variant="outline">
                     <Mail className="h-4 w-4 mr-2" />
                     Connect Outlook
-                  </Button>
+                  </Button> */}
                 </div>
               </div>
             ) : (
@@ -187,14 +187,14 @@ const Settings = () => {
                 ))}
                 <div className="pt-4 border-t">
                   <div className="flex gap-3">
-                    <Button onClick={handleConnectGmail} variant="outline">
+                    {/* <Button onClick={handleConnectGmail} variant="outline">
                       <Mail className="h-4 w-4 mr-2" />
                       Add Gmail
                     </Button>
                     <Button onClick={handleConnectOutlook} variant="outline">
                       <Mail className="h-4 w-4 mr-2" />
                       Add Outlook
-                    </Button>
+                    </Button> */}
                   </div>
                 </div>
               </div>

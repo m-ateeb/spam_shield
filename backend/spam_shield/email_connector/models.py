@@ -44,6 +44,7 @@ class Email(models.Model):
     dmarc_policy = models.CharField(max_length=20, default='unknown')
     auth_score = models.IntegerField(default=0)
     is_suspicious = models.BooleanField(default=False)
+    opened_at = models.DateTimeField(null=True, blank=True, help_text="When user opened/viewed this email")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -51,6 +52,7 @@ class Email(models.Model):
             models.Index(fields=['user', 'account']),
             models.Index(fields=['message_id']),
             models.Index(fields=['is_suspicious']),
+            models.Index(fields=['opened_at']),  # Index for dashboard queries
         ]
 
     def __str__(self):
@@ -99,12 +101,22 @@ class ClassificationResult(models.Model):
     email = models.OneToOneField(Email, on_delete=models.CASCADE, related_name='classification')
     rule_engine_verdict = models.CharField(
         max_length=20,
-        choices=[('safe', 'Safe'), ('suspicious', 'Suspicious'), ('malicious', 'Malicious')],
+        choices=[
+            ('safe', 'Safe'), 
+            ('suspicious', 'Suspicious'), 
+            ('malicious', 'Malicious'),
+            ('phishing', 'Phishing')  # Added phishing as a valid verdict
+        ],
         default='safe'
     )
     final_action = models.CharField(
         max_length=20,
-        choices=[('allow', 'Allow'), ('quarantine', 'Quarantine'), ('block', 'Block')],
+        choices=[
+            ('allow', 'Allow'), 
+            ('quarantine', 'Quarantine'), 
+            ('delete', 'Delete'),  # Added delete action for phishing
+            ('block', 'Block')
+        ],
         default='allow'
     )
     reason = models.TextField(blank=True)
@@ -133,6 +145,7 @@ class QuarantinedEmail(models.Model):
         indexes = [
             models.Index(fields=['user', 'status']),
         ]
+        unique_together = [['email', 'user']]
 
     def __str__(self):
         return f"Quarantined: {self.email.subject} - {self.status}"

@@ -47,7 +47,7 @@ export const DashboardLayout = ({ children, type }: DashboardLayoutProps) => {
         <div className="p-6">
           <div className="flex items-center gap-2 mb-8">
             <Shield className="h-8 w-8 text-accent" />
-            <span className="text-xl font-semibold">SpamShield</span>
+            <span className="text-xl font-semibold">InboxGuardian</span>
           </div>
           
           <nav className="space-y-1">
