@@ -92,18 +92,44 @@ def google_callback(request):
         logger.info(f"Successfully saved account: {email} for user {request.user_id}")
         syslog("oauth_connect", "google_callback", {"email": email, "user_id": request.user_id})
         
-        # Setup Gmail watch
+        # Setup Gmail watch for push notifications
         try:
             import requests
             watch_payload = {"topicName": f"projects/{settings.GOOGLE_PROJECT_ID}/topics/gmail-topic"}
-            requests.post(
+            watch_response = requests.post(
                 f"https://gmail.googleapis.com/gmail/v1/users/{email}/watch",
                 headers={"Authorization": f"Bearer {access_token}"},
                 json=watch_payload,
                 timeout=10,
             )
+            if watch_response.status_code == 200:
+                watch_data = watch_response.json()
+                logger.info(f"Gmail watch setup successful for {email}, expiration: {watch_data.get('expiration')}")
+                syslog("gmail_watch_success", "google_callback", {
+                    "email": email,
+                    "expiration": watch_data.get("expiration")
+                })
+            else:
+                logger.warning(f"Gmail watch setup failed: {watch_response.status_code} - {watch_response.text}")
+                syslog("gmail_watch_error", "google_callback", {
+                    "error": f"HTTP {watch_response.status_code}: {watch_response.text}"
+                })
         except Exception as e:
+            logger.error(f"Error setting up Gmail watch: {e}", exc_info=True)
             syslog("gmail_watch_error", "google_callback", {"error": str(e)})
+        
+        # Trigger initial scan of 50 most recent emails
+        try:
+            from spam_shield.tasks import scan_initial_emails
+            scan_initial_emails.delay(account.id)
+            logger.info(f"Triggered initial email scan for account {account.id} ({email})")
+            syslog("initial_scan_triggered", "google_callback", {
+                "email": email,
+                "account_id": account.id
+            })
+        except Exception as e:
+            logger.error(f"Error triggering initial email scan: {e}", exc_info=True)
+            syslog("initial_scan_trigger_error", "google_callback", {"error": str(e)})
 
         # Clean up session
         for key in ['oauth_user_id', 'oauth_provider', 'oauth_redirect_uri']:
